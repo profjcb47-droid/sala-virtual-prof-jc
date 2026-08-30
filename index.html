@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b70df">
-<title>Sala Virtual Prof. JC — V5</title>
+<title>Sala Virtual Prof. JC — V6</title>
 <style>
 :root{--blue:#0876e8;--blue2:#075cb6;--ink:#11213b;--muted:#687586;--line:#dbe3ec;--paper:#fbfaf7;--green:#189e5a;--shadow:0 12px 30px rgba(16,33,59,.10)}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,Arial,Helvetica,sans-serif;color:var(--ink);background:var(--paper)}button,input,select,textarea{font:inherit}.hidden{display:none!important}
@@ -81,6 +81,20 @@ font-family:Georgia,serif;font-size:38px;color:rgba(28,118,194,.075);transform:r
   .studentActions button{flex:1}
 }
 
+
+.classManageGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.classManageCard{display:flex;align-items:center;gap:13px;width:100%;min-height:96px;border:1px solid #d5e0ea;border-radius:17px;background:#fff;padding:16px;text-align:left;color:#17344f;box-shadow:0 7px 18px rgba(14,54,88,.06);transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
+.classIcon{width:50px;height:50px;flex:0 0 50px;border-radius:14px;background:linear-gradient(#1790fb,#0864c6);display:grid;place-items:center;font-size:25px;box-shadow:inset 0 -4px 0 rgba(0,0,0,.15)}
+.classManageText{min-width:0;flex:1}.classManageText strong{display:block;font-size:18px;margin-bottom:5px}.classManageText span{font-size:12px;color:#697687}.classArrow{font-size:32px;color:#7a93a9}
+@media(hover:hover) and (pointer:fine){.classManageCard:hover{transform:translateY(-6px);box-shadow:0 16px 28px rgba(13,72,123,.14);border-color:#9dc6ec}}
+.classHeaderActions{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.studentTablePanel{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 7px 18px rgba(0,0,0,.045)}
+.studentTableHead,.studentTableRow{display:grid;grid-template-columns:70px minmax(210px,2fr) minmax(120px,1fr) 90px 170px;gap:10px;align-items:center;padding:11px 13px}
+.studentTableHead{background:#f4f8fc;border-bottom:1px solid #dfe7ef;font-size:11px;font-weight:900;text-transform:uppercase;color:#657384}
+.studentTableRow{border-bottom:1px solid #edf1f5}.studentTableRow:last-child{border-bottom:0}.studentCall{width:42px;height:42px;border-radius:11px;background:#eaf4ff;color:#0863b7;display:grid;place-items:center;font-weight:900}.studentName,.studentLogin,.studentPass{min-width:0;overflow-wrap:anywhere}.studentRowActions{display:flex;gap:6px}
+@media(max-width:760px){.classManageGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.classHeaderActions .primary{width:100%}.studentTableHead{display:none}.studentTableRow{grid-template-columns:52px 1fr;gap:7px 10px;padding:13px}.studentName{grid-column:2}.studentLogin,.studentPass{grid-column:2;font-size:12px}.studentLogin:before{content:"Login: ";font-weight:900}.studentPass:before{content:"Senha: ";font-weight:900}.studentRowActions{grid-column:2;width:100%}.studentRowActions button{flex:1}}
+@media(max-width:430px){.classManageGrid{grid-template-columns:1fr}.classManageCard{min-height:82px}}
+
 </style>
 </head><body><div id="root" class="app"></div><div id="drawer" class="drawer"></div>
 <script>
@@ -101,7 +115,7 @@ const db={
 };
 
 (function migrateRoster(){
- const migrationKey="jc_roster_v5";
+ const migrationKey="jc_roster_v6";
  const current=db.students||[];
  const broken=current.length!==DEFAULT_STUDENTS.length||current.some(x=>!x.nome||!x.turma||!x.login||!x.senha||!x.chamada);
  if(!localStorage.getItem(migrationKey) || broken){
@@ -117,13 +131,190 @@ function e(x){return String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;
 function toast(t){const d=document.createElement("div");d.textContent=t;Object.assign(d.style,{position:"fixed",right:"14px",bottom:"14px",zIndex:100,background:"#11213b",color:"white",padding:"12px 15px",borderRadius:"10px",fontWeight:"900",boxShadow:"0 8px 24px rgba(0,0,0,.2)"});document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
 function go(p){S.page=p;try{render()}catch(err){console.error(err);root.innerHTML=topbar()+`<main class="page"><div class="notice"><b>Não foi possível abrir esta tela.</b><br><span class="small">${e(err.message)}</span></div><button class="primary" onclick="S.page='teacher';render()">Voltar à área do professor</button></main>`}}function logout(){S.user=null;S.page="login";render()}
 function topbar(){return `<header class="top"><div class="top-left"><button class="iconbtn" onclick="openDrawer()">☰</button><button class="iconbtn" onclick="toast('Use o menu do navegador para adicionar à tela inicial.')">⇩</button></div><div class="brand"><img src="${LOGO}" alt="Logo CEPI/JT"><span>Sala Virtual<br>Prof. JC</span></div></header>`}
-function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["students","Gerenciar turmas e alunos"],["schedule","Horário escolar"],["submitted","Ver atividades"],["development","Desenvolvimento dos alunos"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
+function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["development","Desenvolvimento dos alunos"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
 function closeDrawer(){drawer.classList.remove("open")}drawer.addEventListener("click",ev=>{if(ev.target===drawer)closeDrawer()});
-function render(){if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const f={teacher,studentsPage,schedule,activities,createActivity,activityList,content,development,messages,submitted,access,student,subjects,subjectPage,studentActs,send,studentTalk}[S.page]||teacher;f()}
+function render(){if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const f={teacher,classesPage,classStudentsPage,studentsPage,schedule,activities,createActivity,activityList,content,development,messages,submitted,access,student,subjects,subjectPage,studentActs,send,studentTalk}[S.page]||teacher;f()}
 function renderLogin(){root.innerHTML=`<section class="loginPage"><div class="loginBox"><img class="loginLogo" src="${LOGO}" alt="CEPI Jardim Tiradentes"><h1 class="loginTitle">Sala Virtual Prof. JC</h1><p class="muted">Bem-vindo à nossa sala virtual, Prof. JC!</p><div class="role"><button id="rStu" class="active">Aluno</button><button id="rTea">Professor</button></div><label>Usuário</label><input id="loginU" autocomplete="username"><label>Senha</label><input id="loginP" type="password" autocomplete="current-password"><button class="primary" style="width:100%;margin-top:14px" id="enter">Entrar</button><div class="links"><a href="#" id="help">Fale com o professor</a><a href="#" id="install">Instalar app no celular</a></div></div></section>`;rStu.onclick=()=>{S.role="student";rStu.classList.add("active");rTea.classList.remove("active")};rTea.onclick=()=>{S.role="teacher";rTea.classList.add("active");rStu.classList.remove("active")};enter.onclick=login;loginP.addEventListener("keydown",x=>{if(x.key==="Enter")login()});help.onclick=x=>{x.preventDefault();toast("Procure o Prof. JC para recuperar seu acesso.")};install.onclick=x=>{x.preventDefault();toast("No celular, use 'Adicionar à tela inicial' no navegador.")}}
 function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u!==T.login||p!==T.senha)return toast("Usuário ou senha inválidos.");S.user=T;S.page="teacher"}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}render()}
-function teacher(){const cards=[["🧠","Criar atividades e questionários","Crie manualmente ou gere perguntas com inteligência artificial.","activities"],["📊","Desenvolvimento dos alunos","Notas, avaliações e evolução por disciplina.","development"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["🧑‍🎓","Gerenciar turmas e alunos","Acesse as turmas 9º A, B, C, E, F e G e gerencie seus alunos.","students"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="go('${x[3]}')"><div class="tile">${x[0]}</div><h3>${x[1]}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
+function teacher(){const cards=[["🧠","Criar atividades e questionários","Crie manualmente ou gere perguntas com inteligência artificial.","activities"],["📊","Desenvolvimento dos alunos","Notas, avaliações e evolução por disciplina.","development"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["🏫","Gerenciar turmas","Abra cada turma do 9º Ano e gerencie os respectivos alunos.","classes"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="go('${x[3]}')"><div class="tile">${x[0]}</div><h3>${x[1]}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
 function byId(id){return document.getElementById(id)}
+
+
+function classesPage(){
+  const all=Array.isArray(db.students)?db.students:[];
+  const classInfo=CLASSES.map(c=>({
+    turma:c,
+    quantidade:all.filter(s=>s.turma===c).length
+  }));
+
+  page.innerHTML=`
+    <a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a>
+    <h1 class="center">Gerenciar turmas</h1>
+    <p class="sub">Selecione uma turma para visualizar e administrar os alunos.</p>
+
+    <div class="notice">
+      <b>Turmas cadastradas: 6</b><br>
+      <span class="small">9º Ano A, B, C, E, F e G • Total: ${all.length} alunos</span>
+    </div>
+
+    <div class="classManageGrid">
+      ${classInfo.map(info=>`
+        <button type="button" class="classManageCard" onclick="openClassStudents('${info.turma}')">
+          <div class="classIcon">🏫</div>
+          <div class="classManageText">
+            <strong>${e(info.turma)}</strong>
+            <span>${info.quantidade} alunos</span>
+          </div>
+          <div class="classArrow">›</div>
+        </button>`).join("")}
+    </div>`;
+}
+
+function openClassStudents(turma){
+  S.cls=turma;
+  S.page="classStudents";
+  render();
+}
+
+function classStudentsPage(){
+  const list=(Array.isArray(db.students)?db.students:[])
+    .filter(s=>s.turma===S.cls)
+    .sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR"));
+
+  page.innerHTML=`
+    <a class="back" href="#" onclick="go('classes');return false">← Gerenciar turmas</a>
+    <h1 class="center">${e(S.cls)}</h1>
+    <p class="sub">${list.length} alunos cadastrados • em ordem de chamada</p>
+
+    <div class="panel">
+      <div class="classHeaderActions">
+        <div>
+          <b>${e(S.cls)}</b>
+          <div class="small muted">Cadastre, edite ou exclua alunos desta turma.</div>
+        </div>
+        <button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button>
+      </div>
+    </div>
+
+    <section id="classStudentEditor" class="panel hidden">
+      <h3 id="classStudentFormTitle">Cadastrar aluno</h3>
+      <input id="classEditOriginal" type="hidden">
+      <div class="form2">
+        <div>
+          <label>Nº de chamada</label>
+          <input id="classCall" type="number" min="1" inputmode="numeric">
+        </div>
+        <div>
+          <label>Turma</label>
+          <select id="classTurma">
+            ${CLASSES.map(c=>`<option ${c===S.cls?'selected':''}>${e(c)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="full">
+          <label>Nome completo</label>
+          <input id="className" autocomplete="off">
+        </div>
+        <div>
+          <label>Login</label>
+          <input id="classLogin" autocomplete="off">
+        </div>
+        <div>
+          <label>Senha</label>
+          <input id="classPassword" inputmode="numeric" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="toolrow">
+        <button type="button" class="primary" id="classSaveStudentBtn">Salvar aluno</button>
+        <button type="button" class="secondary" id="classCancelStudentBtn">Cancelar</button>
+      </div>
+    </section>
+
+    <div class="studentTablePanel">
+      <div class="studentTableHead">
+        <div>Nº</div><div>Aluno</div><div>Login</div><div>Senha</div><div>Ações</div>
+      </div>
+      ${list.map(st=>`
+        <div class="studentTableRow">
+          <div class="studentCall">${e(st.chamada||"—")}</div>
+          <div class="studentName"><b>${e(st.nome)}</b></div>
+          <div class="studentLogin">${e(st.login)}</div>
+          <div class="studentPass">${e(st.senha)}</div>
+          <div class="studentRowActions">
+            <button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button>
+            <button type="button" class="danger" onclick="classDeleteStudent('${encodeURIComponent(st.login)}')">Excluir</button>
+          </div>
+        </div>`).join("") || '<div class="empty">Nenhum aluno cadastrado nesta turma.</div>'}
+    </div>`;
+
+  document.getElementById("classNewStudentBtn").onclick=()=>classOpenEditor();
+}
+
+function classOpenEditor(st=null){
+  const editor=document.getElementById("classStudentEditor");
+  editor.classList.remove("hidden");
+  document.getElementById("classEditOriginal").value=st?.login||"";
+  document.getElementById("classCall").value=st?.chamada||"";
+  document.getElementById("classTurma").value=st?.turma||S.cls;
+  document.getElementById("className").value=st?.nome||"";
+  document.getElementById("classLogin").value=st?.login||"";
+  document.getElementById("classPassword").value=st?.senha||"";
+  document.getElementById("classStudentFormTitle").textContent=st ? "Editar aluno" : "Cadastrar aluno";
+  document.getElementById("classSaveStudentBtn").textContent=st ? "Salvar alterações" : "Salvar aluno";
+  document.getElementById("classSaveStudentBtn").onclick=classSaveStudent;
+  document.getElementById("classCancelStudentBtn").onclick=()=>editor.classList.add("hidden");
+  editor.scrollIntoView({behavior:"smooth",block:"start"});
+}
+
+function classSaveStudent(){
+  const chamada=parseInt(document.getElementById("classCall").value,10);
+  const turma=document.getElementById("classTurma").value;
+  const nome=document.getElementById("className").value.trim();
+  const login=document.getElementById("classLogin").value.trim().toLowerCase();
+  const senha=document.getElementById("classPassword").value.trim();
+  const original=document.getElementById("classEditOriginal").value;
+
+  if(!chamada || chamada<1 || !nome || !login || !senha){
+    return toast("Preencha número de chamada, turma, nome, login e senha.");
+  }
+  if(db.students.some(s=>String(s.login).toLowerCase()===login && s.login!==original)){
+    return toast("Esse login já está em uso.");
+  }
+  if(db.students.some(s=>s.turma===turma && Number(s.chamada)===chamada && s.login!==original)){
+    return toast("Esse número de chamada já existe nessa turma.");
+  }
+
+  if(original){
+    const idx=db.students.findIndex(s=>s.login===original);
+    if(idx<0) return toast("Aluno não encontrado.");
+    db.students[idx]={turma,chamada,nome,login,senha};
+    toast("Aluno atualizado.");
+  }else{
+    db.students.push({turma,chamada,nome,login,senha});
+    toast("Aluno cadastrado.");
+  }
+
+  S.cls=turma;
+  persist();
+  classStudentsPage();
+}
+
+function classEditStudent(encodedLogin){
+  const login=decodeURIComponent(encodedLogin);
+  const st=db.students.find(s=>s.login===login);
+  if(!st) return toast("Aluno não encontrado.");
+  classOpenEditor(st);
+}
+
+function classDeleteStudent(encodedLogin){
+  const login=decodeURIComponent(encodedLogin);
+  const st=db.students.find(s=>s.login===login);
+  if(!st) return toast("Aluno não encontrado.");
+  if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`)) return;
+  db.students=db.students.filter(s=>s.login!==login);
+  persist();
+  toast("Aluno excluído.");
+  classStudentsPage();
+}
 
 function studentsPage(){
   const all = Array.isArray(db.students) ? db.students : [];
