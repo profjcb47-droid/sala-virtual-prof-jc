@@ -89,10 +89,10 @@ font-family:Georgia,serif;font-size:38px;color:rgba(28,118,194,.075);transform:r
 @media(hover:hover) and (pointer:fine){.classManageCard:hover{transform:translateY(-6px);box-shadow:0 16px 28px rgba(13,72,123,.14);border-color:#9dc6ec}}
 .classHeaderActions{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
 .studentTablePanel{background:#fff;border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:0 7px 18px rgba(0,0,0,.045)}
-.studentTableHead,.studentTableRow{display:grid;grid-template-columns:70px minmax(210px,2fr) minmax(120px,1fr) 90px 170px;gap:10px;align-items:center;padding:11px 13px}
+.studentTableHead,.studentTableRow{display:grid;grid-template-columns:70px minmax(210px,1fr) 170px;gap:10px;align-items:center;padding:11px 13px}
 .studentTableHead{background:#f4f8fc;border-bottom:1px solid #dfe7ef;font-size:11px;font-weight:900;text-transform:uppercase;color:#657384}
-.studentTableRow{border-bottom:1px solid #edf1f5}.studentTableRow:last-child{border-bottom:0}.studentCall{width:42px;height:42px;border-radius:11px;background:#eaf4ff;color:#0863b7;display:grid;place-items:center;font-weight:900}.studentName,.studentLogin,.studentPass{min-width:0;overflow-wrap:anywhere}.studentRowActions{display:flex;gap:6px}
-@media(max-width:760px){.classManageGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.classHeaderActions .primary{width:100%}.studentTableHead{display:none}.studentTableRow{grid-template-columns:52px 1fr;gap:7px 10px;padding:13px}.studentName{grid-column:2}.studentLogin,.studentPass{grid-column:2;font-size:12px}.studentLogin:before{content:"Login: ";font-weight:900}.studentPass:before{content:"Senha: ";font-weight:900}.studentRowActions{grid-column:2;width:100%}.studentRowActions button{flex:1}}
+.studentTableRow{border-bottom:1px solid #edf1f5}.studentTableRow:last-child{border-bottom:0}.studentCall{width:42px;height:42px;border-radius:11px;background:#eaf4ff;color:#0863b7;display:grid;place-items:center;font-weight:900}.studentName{min-width:0;overflow-wrap:anywhere}.studentRowActions{display:flex;gap:6px}
+@media(max-width:760px){.classManageGrid{grid-template-columns:repeat(2,minmax(0,1fr))}.classHeaderActions .primary{width:100%}.studentTableHead{display:none}.studentTableRow{grid-template-columns:52px 1fr;gap:7px 10px;padding:13px}.studentName{grid-column:2}.studentRowActions{grid-column:2;width:100%}.studentRowActions button{flex:1}}
 @media(max-width:430px){.classManageGrid{grid-template-columns:1fr}.classManageCard{min-height:82px}}
 
 </style>
@@ -133,7 +133,7 @@ function go(p){S.page=p;try{render()}catch(err){console.error(err);root.innerHTM
 function topbar(){return `<header class="top"><div class="top-left"><button class="iconbtn" onclick="openDrawer()">☰</button><button class="iconbtn" onclick="toast('Use o menu do navegador para adicionar à tela inicial.')">⇩</button></div><div class="brand"><img src="${LOGO}" alt="Logo CEPI/JT"><span>Sala Virtual<br>Prof. JC</span></div></header>`}
 function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["development","Desenvolvimento dos alunos"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>x[0]==='classes'?`<a href="#turmas" onclick="openClassesFromHash();closeDrawer();return false">${x[1]}</a>`:`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
 function closeDrawer(){drawer.classList.remove("open")}drawer.addEventListener("click",ev=>{if(ev.target===drawer)closeDrawer()});
-function render(){if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const f={teacher,classesPage,classStudentsPage,studentsPage,schedule,activities,createActivity,activityList,content,development,messages,submitted,access,student,subjects,subjectPage,studentActs,send,studentTalk}[S.page]||teacher;f()}
+function render(){if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const routes={teacher,classes:classesPage,classStudents:classStudentsPage,students:studentsPage,schedule,activities,createActivity,activityList,content,development,messages,submitted,access,student,subjects,subjectPage,studentActs,send,studentTalk};const f=routes[S.page]||teacher;f()}
 function routeHash(){
   if(location.hash==="#turmas" && S.user && S.user.role==="teacher"){
     S.page="classes";
@@ -216,27 +216,19 @@ function classStudentsPage(){
       <h3 id="classStudentFormTitle">Cadastrar aluno</h3>
       <input id="classEditOriginal" type="hidden">
       <div class="form2">
+        <div class="full">
+          <label>Nome completo</label>
+          <input id="className" autocomplete="off" placeholder="Digite o nome do aluno">
+        </div>
         <div>
           <label>Nº de chamada</label>
-          <input id="classCall" type="number" min="1" inputmode="numeric">
+          <input id="classCall" type="number" min="1" inputmode="numeric" placeholder="Ex.: 12">
         </div>
         <div>
           <label>Turma</label>
           <select id="classTurma">
             ${CLASSES.map(c=>`<option ${c===S.cls?'selected':''}>${e(c)}</option>`).join("")}
           </select>
-        </div>
-        <div class="full">
-          <label>Nome completo</label>
-          <input id="className" autocomplete="off">
-        </div>
-        <div>
-          <label>Login</label>
-          <input id="classLogin" autocomplete="off">
-        </div>
-        <div>
-          <label>Senha</label>
-          <input id="classPassword" inputmode="numeric" autocomplete="new-password">
         </div>
       </div>
       <div class="toolrow">
@@ -247,14 +239,12 @@ function classStudentsPage(){
 
     <div class="studentTablePanel">
       <div class="studentTableHead">
-        <div>Nº</div><div>Aluno</div><div>Login</div><div>Senha</div><div>Ações</div>
+        <div>Nº</div><div>Aluno</div><div>Ações</div>
       </div>
       ${list.map(st=>`
         <div class="studentTableRow">
           <div class="studentCall">${e(st.chamada||"—")}</div>
           <div class="studentName"><b>${e(st.nome)}</b></div>
-          <div class="studentLogin">${e(st.login)}</div>
-          <div class="studentPass">${e(st.senha)}</div>
           <div class="studentRowActions">
             <button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button>
             <button type="button" class="danger" onclick="classDeleteStudent('${encodeURIComponent(st.login)}')">Excluir</button>
@@ -272,8 +262,6 @@ function classOpenEditor(st=null){
   document.getElementById("classCall").value=st?.chamada||"";
   document.getElementById("classTurma").value=st?.turma||S.cls;
   document.getElementById("className").value=st?.nome||"";
-  document.getElementById("classLogin").value=st?.login||"";
-  document.getElementById("classPassword").value=st?.senha||"";
   document.getElementById("classStudentFormTitle").textContent=st ? "Editar aluno" : "Cadastrar aluno";
   document.getElementById("classSaveStudentBtn").textContent=st ? "Salvar alterações" : "Salvar aluno";
   document.getElementById("classSaveStudentBtn").onclick=classSaveStudent;
@@ -281,19 +269,22 @@ function classOpenEditor(st=null){
   editor.scrollIntoView({behavior:"smooth",block:"start"});
 }
 
+function createInternalStudentCredentials(nome){
+  const base=(nome||"aluno").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g,".").replace(/^\.|\.$/g,"")||"aluno";
+  let login=base, n=2;
+  while(db.students.some(s=>String(s.login).toLowerCase()===login.toLowerCase())) login=base+(n++);
+  const senha=String(1000+Math.floor(Math.random()*9000));
+  return {login,senha};
+}
+
 function classSaveStudent(){
   const chamada=parseInt(document.getElementById("classCall").value,10);
   const turma=document.getElementById("classTurma").value;
   const nome=document.getElementById("className").value.trim();
-  const login=document.getElementById("classLogin").value.trim().toLowerCase();
-  const senha=document.getElementById("classPassword").value.trim();
   const original=document.getElementById("classEditOriginal").value;
 
-  if(!chamada || chamada<1 || !nome || !login || !senha){
-    return toast("Preencha número de chamada, turma, nome, login e senha.");
-  }
-  if(db.students.some(s=>String(s.login).toLowerCase()===login && s.login!==original)){
-    return toast("Esse login já está em uso.");
+  if(!chamada || chamada<1 || !nome || !turma){
+    return toast("Preencha nome, número de chamada e turma.");
   }
   if(db.students.some(s=>s.turma===turma && Number(s.chamada)===chamada && s.login!==original)){
     return toast("Esse número de chamada já existe nessa turma.");
@@ -302,10 +293,11 @@ function classSaveStudent(){
   if(original){
     const idx=db.students.findIndex(s=>s.login===original);
     if(idx<0) return toast("Aluno não encontrado.");
-    db.students[idx]={turma,chamada,nome,login,senha};
+    db.students[idx]={...db.students[idx],turma,chamada,nome};
     toast("Aluno atualizado.");
   }else{
-    db.students.push({turma,chamada,nome,login,senha});
+    const cred=createInternalStudentCredentials(nome);
+    db.students.push({turma,chamada,nome,login:cred.login,senha:cred.senha});
     toast("Aluno cadastrado.");
   }
 
@@ -374,6 +366,10 @@ function studentsPage(){
     <h3 id="studentFormTitle">Cadastrar aluno</h3>
     <input id="editLoginOriginal" type="hidden">
     <div class="form2">
+      <div class="full">
+        <label>Nome completo</label>
+        <input id="sn" autocomplete="off" placeholder="Digite o nome do aluno">
+      </div>
       <div>
         <label>Nº de chamada</label>
         <input id="sc" type="number" min="1" inputmode="numeric" placeholder="Ex.: 12">
@@ -381,18 +377,6 @@ function studentsPage(){
       <div>
         <label>Turma</label>
         <select id="st">${CLASSES.map(c=>`<option ${c===S.cls?'selected':''}>${e(c)}</option>`).join("")}</select>
-      </div>
-      <div class="full">
-        <label>Nome completo</label>
-        <input id="sn" autocomplete="off">
-      </div>
-      <div>
-        <label>Login</label>
-        <input id="sl" autocomplete="off">
-      </div>
-      <div>
-        <label>Senha</label>
-        <input id="sp" inputmode="numeric" autocomplete="new-password">
       </div>
     </div>
     <div class="toolrow">
@@ -409,7 +393,7 @@ function studentsPage(){
           <div class="callNumber">${e(st.chamada||"—")}</div>
           <div class="grow">
             <b>${e(st.nome)}</b>
-            <span class="small muted">Login: ${e(st.login)} • Senha: ${e(st.senha)}</span>
+            <span class="small muted">${e(st.turma)}</span>
           </div>
           <div class="studentActions">
             <button type="button" class="secondary editStudentBtn" data-login="${encodeURIComponent(st.login)}">Editar</button>
@@ -443,8 +427,6 @@ function openStudentEditor(stt=null){
   byId("sc").value=stt?.chamada||"";
   byId("st").value=stt?.turma||S.cls;
   byId("sn").value=stt?.nome||"";
-  byId("sl").value=stt?.login||"";
-  byId("sp").value=stt?.senha||"";
   byId("studentFormTitle").textContent=stt ? "Editar aluno" : "Cadastrar aluno";
   byId("studentSaveBtn").textContent=stt ? "Salvar alterações" : "Salvar aluno";
   byId("studentSaveBtn").onclick=saveStudent;
@@ -456,15 +438,10 @@ function saveStudent(){
   const chamada=parseInt(byId("sc").value,10);
   const turma=byId("st").value;
   const nome=byId("sn").value.trim();
-  const log=byId("sl").value.trim().toLowerCase();
-  const sen=byId("sp").value.trim();
   const original=byId("editLoginOriginal").value;
 
-  if(!chamada||chamada<1||!nome||!log||!sen)
-    return toast("Preencha número de chamada, turma, nome, login e senha.");
-
-  if(db.students.some(x=>String(x.login).toLowerCase()===log && x.login!==original))
-    return toast("Esse login já está em uso.");
+  if(!chamada||chamada<1||!nome||!turma)
+    return toast("Preencha nome, número de chamada e turma.");
 
   if(db.students.some(x=>x.turma===turma && Number(x.chamada)===chamada && x.login!==original))
     return toast("Esse número de chamada já está em uso nessa turma.");
@@ -472,10 +449,11 @@ function saveStudent(){
   if(original){
     const idx=db.students.findIndex(x=>x.login===original);
     if(idx<0) return toast("Aluno não encontrado.");
-    db.students[idx]={turma,chamada,nome,login:log,senha:sen};
+    db.students[idx]={...db.students[idx],turma,chamada,nome};
     toast("Aluno atualizado.");
   }else{
-    db.students.push({turma,chamada,nome,login:log,senha:sen});
+    const cred=createInternalStudentCredentials(nome);
+    db.students.push({turma,chamada,nome,login:cred.login,senha:cred.senha});
     toast("Aluno cadastrado.");
   }
 
