@@ -47,7 +47,7 @@ font-family:Georgia,serif;font-size:38px;color:rgba(28,118,194,.075);transform:r
 }
 .loginBox{position:relative;z-index:2;width:min(485px,100%);background:rgba(255,255,255,.985);border:1px solid #d9e5f0;border-radius:25px;padding:20px 28px 26px;box-shadow:0 22px 55px rgba(14,55,93,.16);text-align:center}
 .loginLogo{display:block;width:180px;height:180px;object-fit:contain;margin:0 auto -5px}.loginTitle{font-size:32px;line-height:1.05;margin:2px 0 8px}.role{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0}.role button{min-height:48px;border-radius:12px;border:1px solid #c6d3df;background:#fff;font-weight:900;color:#606b78}.role button.active{background:var(--blue);border-color:var(--blue);color:#fff}.loginBox label{text-align:center}.loginBox .links{display:flex;flex-direction:column;gap:9px;margin-top:15px;font-size:13px}
-.avatarline{display:flex;align-items:center;gap:10px}.avatar{width:44px;height:44px;border-radius:50%;border:3px solid #ddebfa;display:grid;place-items:center;font-weight:900;background:#fff}
+.avatarline{display:flex;align-items:center;gap:10px}.avatar{width:44px;height:44px;min-width:44px;max-width:44px;flex:0 0 44px;aspect-ratio:1/1;border-radius:50%;border:3px solid #ddebfa;display:grid;place-items:center;font-weight:900;background:#fff;overflow:hidden}
 .tableWrap{overflow:auto}.scheduleTable{border-collapse:collapse;width:100%;min-width:760px}.scheduleTable th,.scheduleTable td{border-bottom:1px solid #e3e9ef;padding:8px;text-align:left;vertical-align:top}.scheduleTable th{font-size:11px;text-transform:uppercase;color:#697688}.timeInputs{display:grid;grid-template-columns:1fr 1fr;gap:5px;min-width:170px}.timeInputs input{padding:7px;font-size:13px;min-height:36px}
 .question{border:1px solid #dce5ee;background:#fff;border-radius:13px;padding:13px;margin:10px 0}.qtop{display:flex;align-items:center;gap:8px}.qtop select{max-width:180px}.qtop input{flex:1}.toolrow{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.ai{background:#f7fbff;border:1px solid #bfdbf5}.statgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.stat{background:#f8fafc;border:1px solid #e2e8ef;border-radius:12px;padding:12px;text-align:center}.stat b{font-size:20px;display:block}
 @media(max-width:760px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2,.form2{grid-template-columns:1fr}.full{grid-column:auto}.top{width:100%;border-radius:0 0 16px 16px}.page{width:calc(100% - 20px)}.loginPage{padding:12px}.loginBox{padding:16px 16px 22px;border-radius:22px}.loginLogo{width:145px;height:145px}.loginTitle{font-size:29px}.card{min-height:165px}.modebar{grid-template-columns:1fr}.statgrid{grid-template-columns:1fr}}
@@ -106,8 +106,8 @@ font-family:Georgia,serif;font-size:38px;color:rgba(28,118,194,.075);transform:r
 .chatBubble b{display:block;margin-bottom:3px}.chatDate{display:block;margin-top:5px;font-size:11px;color:#6f7b88}
 .unreadDot{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border-radius:999px;background:#e65059;color:#fff;font-size:11px;font-weight:900;margin-left:8px}
 .chatStudentMeta{display:flex;align-items:center;gap:9px;min-width:0}.chatStudentMeta .grow{min-width:0}
-.profileAvatar{width:54px;height:54px;border-radius:50%;object-fit:cover;border:2px solid #d7e7f7;background:#eef5fc;display:block}
-.avatar.profileReady{padding:0;overflow:hidden}.avatar.profileReady img{width:100%;height:100%;object-fit:cover;display:block}
+.profileAvatar{width:54px;height:54px;min-width:54px;max-width:54px;flex:0 0 54px;aspect-ratio:1/1;border-radius:50%;object-fit:cover;border:2px solid #d7e7f7;background:#eef5fc;display:block;overflow:hidden}
+.avatar.profileReady{padding:0;overflow:hidden;border-radius:50%}.avatar.profileReady img{width:100%;height:100%;min-width:100%;min-height:100%;aspect-ratio:1/1;object-fit:cover;display:block;border-radius:50%}
 .profileTools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.profileTools input[type=file]{display:none}
 .messageActions{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}.messageDelete{border:0;background:transparent;color:#a62b36;font-size:12px;font-weight:800;padding:3px 5px;cursor:pointer}
 .notificationBell{position:relative}.notificationCount{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:#e65059;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:900;border:2px solid #fff}.cardBadge{display:inline-grid;place-items:center;min-width:24px;height:24px;padding:0 7px;border-radius:999px;background:#e65059;color:#fff;font-size:11px;font-weight:900;margin-left:7px;vertical-align:middle}
@@ -145,7 +145,97 @@ const db={
 })();
 
 const S={user:null,role:"student",page:"login",cls:"9º Ano A",sub:"Matemática",contentMode:"file",contentTab:"Arquivos",chatLogin:null};
-function persist(){Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])))}
+
+/* ===== Sincronização online Supabase =====
+   A chave abaixo é a publishable key (pública) fornecida para o projeto.
+   O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
+const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
+const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
+const CLOUD_COLLECTIONS=["students","activities","contents","messages","submissions","schedule","notes","accesses"];
+const CLOUD_STORAGE_BUCKET="jc-files";
+let cloudEnabled=true,cloudReady=false,cloudDirty=false,cloudPushTimer=null,cloudPushRunning=false,cloudLastError="",cloudLastPull=0;
+const cloudShadow={};
+
+function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
+function stableKeyForItem(collection,item,index){
+ if(collection==="students")return String(item.login||index);
+ if(collection==="notes"){if(!item.id)item.id=Date.now()+index+Math.floor(Math.random()*1000);return String(item.id)}
+ return String(item.id??index)
+}
+function cloudEntries(collection){
+ const value=db[collection];
+ const m=new Map();
+ if(Array.isArray(value)){value.forEach((item,i)=>m.set(stableKeyForItem(collection,item,i),item))}
+ else if(value&&typeof value==="object"){Object.entries(value).forEach(([k,v])=>m.set(String(k),v))}
+ return m
+}
+function serializeMap(m){const out={};m.forEach((v,k)=>out[k]=JSON.stringify(v));return out}
+function rebuildCollection(collection,rows){
+ if(collection==="schedule"||collection==="accesses"){const o={};rows.forEach(r=>o[r.item_key]=r.data);return o}
+ const arr=rows.map(r=>r.data);
+ if(collection==="students")arr.sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
+ else arr.sort((a,b)=>Number(b.id||0)-Number(a.id||0));
+ return arr
+}
+async function cloudRequest(path,options={}){
+ const r=await fetch(SUPABASE_URL+path,{...options,headers:{...supabaseHeaders(),...(options.headers||{})}});
+ if(!r.ok){const text=await r.text().catch(()=>"");throw new Error(`Supabase ${r.status}: ${text||r.statusText}`)}
+ return r
+}
+async function cloudPull(initial=false){
+ if(!cloudEnabled||cloudDirty||cloudPushRunning)return;
+ try{
+  const r=await cloudRequest('/rest/v1/jc_records?select=collection,item_key,data,updated_at&order=collection.asc,item_key.asc');
+  const rows=await r.json();
+  const grouped={};CLOUD_COLLECTIONS.forEach(k=>grouped[k]=[]);
+  rows.forEach(row=>{if(grouped[row.collection])grouped[row.collection].push(row)});
+  if(initial&&rows.length===0){
+    CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]={});
+    cloudReady=true;cloudDirty=true;await cloudPushDiff(true);return;
+  }
+  let changed=false,missingCollection=false;
+  for(const k of CLOUD_COLLECTIONS){
+    if(grouped[k].length){
+      const rebuilt=rebuildCollection(k,grouped[k]);
+      const before=JSON.stringify(db[k]);
+      db[k]=rebuilt;
+      localStorage.setItem('jc_'+k,JSON.stringify(db[k]));
+      if(before!==JSON.stringify(rebuilt))changed=true;
+      const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
+    }else if(initial){cloudShadow[k]={};missingCollection=true}
+  }
+  cloudReady=true;cloudLastError="";cloudLastPull=Date.now();
+  if(initial&&missingCollection){cloudDirty=true;await cloudPushDiff(false)}
+  if(changed&&S.user){
+    if(S.user.role==='student'){const fresh=db.students.find(x=>x.login===S.user.login);if(fresh)S.user={...fresh,role:'student'}}
+    render();
+  }
+ }catch(err){cloudLastError=err.message;console.warn('Sincronização Supabase indisponível:',err);if(initial)toast('Supabase ainda não configurado. Execute o arquivo supabase_setup.sql.')}
+}
+async function cloudPushDiff(force=false){
+ if(!cloudEnabled||cloudPushRunning||(!cloudDirty&&!force))return;
+ cloudPushRunning=true;clearTimeout(cloudPushTimer);cloudPushTimer=null;
+ try{
+  const upserts=[];const deletes=[];const now=new Date().toISOString();
+  for(const k of CLOUD_COLLECTIONS){
+    const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
+    current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
+    Object.keys(shadow).forEach(key=>{if(!current.has(key))deletes.push([k,key])});
+  }
+  if(upserts.length){
+    await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(upserts)});
+  }
+  for(const [collection,key] of deletes){
+    await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+  }
+  CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
+  cloudDirty=false;cloudReady=true;cloudLastError="";
+ }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
+ finally{cloudPushRunning=false;if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),2500)}
+}
+function scheduleCloudPush(){cloudDirty=true;clearTimeout(cloudPushTimer);cloudPushTimer=setTimeout(()=>cloudPushDiff(),650)}
+function persist(){Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));scheduleCloudPush()}
+async function initCloud(){await cloudPull(true);setInterval(()=>cloudPull(false),4000)}
 const MESSAGE_RETENTION_DAYS=30;
 function teacherUnreadCount(){return db.messages.filter(m=>m.from==='student'&&!m.readTeacher).length}
 function studentUnreadCount(login){return db.messages.filter(m=>m.login===login&&m.from==='teacher'&&!m.readStudent).length}
@@ -521,8 +611,14 @@ function activityList(){const arr=db.activities.filter(a=>a.turma===S.cls&&a.dis
 function content(){const arr=db.contents.filter(c=>c.turma===S.cls&&c.disciplina===S.sub);page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a><h1 class="center">Enviar arquivos da aula</h1><p class="sub">Publique materiais para uma turma e disciplina.</p><div class="panel"><div class="form2"><div><label>Turma</label><select id="cc" onchange="S.cls=this.value;content()">${CLASSES.map(c=>`<option ${c===S.cls?"selected":""}>${c}</option>`).join("")}</select></div><div><label>Disciplina</label><select id="cs" onchange="S.sub=this.value;content()">${SUBJECTS.map(s=>`<option ${s===S.sub?"selected":""}>${s}</option>`).join("")}</select></div></div><div class="modebar"><button class="${S.contentMode==="file"?"active":""}" onclick="S.contentMode='file';content()">📁 Enviar arquivos</button><button class="${S.contentMode==="link"?"active":""}" onclick="S.contentMode='link';content()">🔗 Colar link</button><button class="${S.contentMode==="text"?"active":""}" onclick="S.contentMode='text';content()">💬 Digitar texto</button></div>${contentForm()}</div><h3 class="sectionTitle">Conteúdos publicados</h3><div class="miniTabs">${["Arquivos","Links","Textos"].map(x=>`<button class="${S.contentTab===x?"active":""}" onclick="S.contentTab='${x}';content()">${x}</button>`).join("")}</div>${renderContentList(arr)}`}
 function contentForm(){if(S.contentMode==="file")return `<label>Descrição do conteúdo</label><textarea id="desc"></textarea><label>Selecione os arquivos</label><input id="filepick" type="file" multiple><p class="small muted">Você pode selecionar vários arquivos. Limite visual: 15 MB por arquivo.</p><button class="primary" style="width:100%" onclick="publishContent('file')">Enviar arquivos</button>`;if(S.contentMode==="link")return `<label>Descrição do link</label><textarea id="desc"></textarea><label>Link</label><input id="linkpick" type="url" placeholder="https://..."><button class="primary" style="width:100%" onclick="publishContent('link')">Publicar link</button>`;return `<label>Título ou descrição</label><input id="desc"><label>Texto</label><textarea id="textpick"></textarea><button class="primary" style="width:100%" onclick="publishContent('text')">Publicar texto</button>`}
 function openFileDB(){return new Promise((resolve,reject)=>{const req=indexedDB.open("jc_files",1);req.onupgradeneeded=()=>{const idb=req.result;if(!idb.objectStoreNames.contains("files"))idb.createObjectStore("files")};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
-async function saveFileBlob(key,file){const idb=await openFileDB();return new Promise((resolve,reject)=>{const tx=idb.transaction("files","readwrite");tx.objectStore("files").put(file,key);tx.oncomplete=()=>{idb.close();resolve()};tx.onerror=()=>{idb.close();reject(tx.error)}})}
-async function getFileBlob(key){const idb=await openFileDB();return new Promise((resolve,reject)=>{const tx=idb.transaction("files","readonly");const req=tx.objectStore("files").get(key);req.onsuccess=()=>{idb.close();resolve(req.result)};req.onerror=()=>{idb.close();reject(req.error)}})}
+async function saveFileBlobLocal(key,file){const idb=await openFileDB();return new Promise((resolve,reject)=>{const tx=idb.transaction("files","readwrite");tx.objectStore("files").put(file,key);tx.oncomplete=()=>{idb.close();resolve()};tx.onerror=()=>{idb.close();reject(tx.error)}})}
+async function getFileBlobLocal(key){const idb=await openFileDB();return new Promise((resolve,reject)=>{const tx=idb.transaction("files","readonly");const req=tx.objectStore("files").get(key);req.onsuccess=()=>{idb.close();resolve(req.result)};req.onerror=()=>{idb.close();reject(req.error)}})}
+function cloudFilePath(key){return String(key).split('/').map(encodeURIComponent).join('/')}
+async function uploadCloudFile(key,file){const r=await fetch(SUPABASE_URL+'/storage/v1/object/'+CLOUD_STORAGE_BUCKET+'/'+cloudFilePath(key),{method:'POST',headers:{...supabaseHeaders({'x-upsert':'true','Content-Type':file.type||'application/octet-stream'})},body:file});if(!r.ok){const t=await r.text().catch(()=>"");throw new Error(`Storage ${r.status}: ${t||r.statusText}`)}}
+async function downloadCloudFile(key){const r=await fetch(SUPABASE_URL+'/storage/v1/object/'+CLOUD_STORAGE_BUCKET+'/'+cloudFilePath(key),{headers:supabaseHeaders()});if(r.status===404)return null;if(!r.ok)throw new Error('Não foi possível baixar o arquivo do Supabase.');return await r.blob()}
+async function deleteCloudFile(key){if(!key)return;try{await fetch(SUPABASE_URL+'/storage/v1/object/'+CLOUD_STORAGE_BUCKET+'/'+cloudFilePath(key),{method:'DELETE',headers:supabaseHeaders()})}catch(err){console.warn('Não foi possível excluir arquivo remoto',err)}}
+async function saveFileBlob(key,file){await saveFileBlobLocal(key,file);try{await uploadCloudFile(key,file)}catch(err){cloudLastError=err.message;console.warn('Arquivo ficou salvo apenas neste aparelho até o Supabase estar disponível.',err)}}
+async function getFileBlob(key){try{const local=await getFileBlobLocal(key);if(local)return local}catch{}try{const remote=await downloadCloudFile(key);if(remote){try{await saveFileBlobLocal(key,remote)}catch{}return remote}}catch(err){console.warn(err)}return null}
 function getContentRemoteUrl(f){return f?.arquivoUrl||f?.fileUrl||f?.url||f?.publicUrl||f?.storageUrl||""}
 async function openContentFile(contentId,fileIndex){const item=db.contents.find(x=>x.id===contentId),f=item?.files?.[fileIndex];if(!f)return toast("Arquivo não encontrado.");const remote=getContentRemoteUrl(f);if(remote){window.open(remote,"_blank","noopener");return}try{let blob=f.storageKey?await getFileBlob(f.storageKey):null;if(!blob&&f.data){const r=await fetch(f.data);if(!r.ok)throw new Error("Falha ao abrir arquivo");blob=await r.blob()}if(!blob)return toast("Este arquivo não está disponível neste dispositivo. Reenvie o material para liberar a visualização.");const url=URL.createObjectURL(blob);window.open(url,"_blank","noopener");setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(err){console.error(err);toast("Não foi possível visualizar o arquivo.")}}
 async function downloadContentFile(contentId,fileIndex){const item=db.contents.find(x=>x.id===contentId),f=item?.files?.[fileIndex];if(!f)return toast("Arquivo não encontrado.");const remote=getContentRemoteUrl(f);try{let blob=null;if(remote){const r=await fetch(remote);if(!r.ok)throw new Error("Falha ao baixar arquivo remoto");blob=await r.blob()}else if(f.storageKey){blob=await getFileBlob(f.storageKey)}if(!blob&&f.data){const r=await fetch(f.data);if(!r.ok)throw new Error("Falha ao baixar arquivo");blob=await r.blob()}if(!blob)return toast("Este arquivo não está disponível neste dispositivo. Reenvie o material para liberar o download.");const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=f.name||"arquivo";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}catch(err){console.error(err);if(remote){window.open(remote,"_blank","noopener");toast("O arquivo foi aberto em outra aba. Use a opção de download do navegador.")}else toast("Não foi possível baixar o arquivo.")}}
@@ -563,5 +659,5 @@ async function sendWork(){const f=sf.files[0];if(!f)return toast("Selecione um a
 function studentTalk(){const now=Date.now();db.messages.forEach(m=>{if(m.login===S.user.login&&m.from==='teacher'&&!m.readStudent){m.readStudent=true;m.readAtStudent=now}});persist();const hist=db.messages.filter(x=>x.login===S.user.login);page.innerHTML=`<a class="back" href="#" onclick="go('student');return false">← Início</a><h1 class="center">Professor Junio C.</h1><p class="sub">Conversa privada</p><div class="chatToolbar"><span class="autoDeleteInfo">🕒 Mensagens lidas são removidas após ${MESSAGE_RETENTION_DAYS} dias.</span><button class="danger" onclick="deleteConversation('${e(S.user.login)}','student')">🗑 Excluir conversa</button></div><div class="chatPanel"><div id="chat" class="chatHistory">${hist.map(m=>`<div class="chatBubble ${m.from==='student'?'mine':'theirs'}"><b>${m.from==='teacher'?'Professor':'Você'}</b><div>${e(m.text||'')}</div>${m.fileName?`<div class="small muted">📎 ${e(m.fileName)}</div>`:''}<span class="chatDate">${e(m.date||'')}</span><div class="messageActions"><button class="messageDelete" onclick="deleteMessage(${m.id},'studentTalk')">🗑 Excluir</button></div></div>`).join('')||'<div class="empty">Nenhuma mensagem ainda.</div>'}</div><label>Mensagem</label><textarea id="studentMsg" placeholder="Digite sua mensagem..."></textarea><label>Adicionar mídia</label><input id="studentMedia" type="file" accept="image/*,.pdf,audio/*,video/*"><p class="small muted">Imagem, PDF, áudio ou vídeo — até 10 MB.</p><button class="primary" style="width:100%" onclick="sendStudentMessage()">Enviar mensagem</button></div>`;setTimeout(()=>{const c=byId('chat');if(c)c.scrollTop=c.scrollHeight},0)}
 function sendStudentMessage(){const t=byId('studentMsg'),f=byId('studentMedia')?.files?.[0];const text=t?.value.trim()||'';if(!text&&!f)return toast('Digite uma mensagem ou escolha um arquivo.');if(f&&f.size>10*1024*1024)return toast('O arquivo ultrapassa 10 MB.');const now=Date.now();db.messages.push({id:now,createdAt:now,login:S.user.login,from:'student',text,fileName:f?.name||'',date:new Date(now).toLocaleString('pt-BR'),readTeacher:false,readStudent:true,readAtTeacher:null,readAtStudent:now});persist();studentTalk()}
 window.addEventListener('storage',ev=>{if(ev.key==='jc_messages'){try{db.messages=JSON.parse(ev.newValue||'[]')}catch{}if(S.user&&(S.page==='messages'||S.page==='teacherTalk'||S.page==='studentTalk'))render()}});
-render();
+initCloud().finally(()=>render());
 </script></body></html>
