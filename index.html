@@ -4,7 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b70df">
-<title>Sala Virtual Prof. JC — V8</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Sala Virtual Prof. JC — V8.2 Sincronizada</title>
 <style>
 :root{--blue:#0876e8;--blue2:#075cb6;--ink:#11213b;--muted:#687586;--line:#dbe3ec;--paper:#fbfaf7;--green:#189e5a;--shadow:0 12px 30px rgba(16,33,59,.10)}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,Arial,Helvetica,sans-serif;color:var(--ink);background:var(--paper)}button,input,select,textarea{font:inherit}.hidden{display:none!important}
@@ -114,6 +117,8 @@ font-family:Georgia,serif;font-size:38px;color:rgba(28,118,194,.075);transform:r
 .chatToolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0 12px}.autoDeleteInfo{font-size:12px;color:#66758a}
 @media(max-width:560px){.chatBubble{max-width:92%}.chatHistory{min-height:260px}.chatPanel{padding:12px}}
 .photoPageCard{max-width:560px;margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:0 10px 26px rgba(0,0,0,.06)}.photoPreview{width:190px;height:190px;border-radius:50%;margin:0 auto 22px;background:#f4f8fc;border:5px solid #dbeafa;display:grid;place-items:center;font-size:72px;font-weight:800;color:#0c315c;overflow:hidden}.photoPreview img{width:100%;height:100%;object-fit:cover;display:block}.photoChooser{border:2px dashed #b8d3ea;border-radius:18px;padding:20px;text-align:center;background:#f7fbff}.photoChooserActions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px}.photoChooser input{display:none}.photoHint{text-align:center;color:#6f7b88;margin:18px 0}.photoSave{width:100%;min-height:52px}.profilePhotoButton{white-space:nowrap}@media(max-width:560px){.photoPageCard{padding:18px}.photoPreview{width:165px;height:165px}.photoChooserActions{flex-direction:column}.photoChooserActions button{width:100%}.avatarline{align-items:center}.avatarline .profileTools{width:100%;justify-content:flex-start}}
+
+.cloudStatusBtn{border:1px solid #c8d5e1;background:#fff;color:#35617f;border-radius:999px;padding:7px 10px;font-size:11px;font-weight:900;white-space:nowrap}.cloudStatusBtn:active{transform:translateY(1px)}@media(max-width:560px){.cloudStatusBtn{position:fixed;right:10px;bottom:10px;z-index:45;box-shadow:0 5px 16px rgba(0,0,0,.13)}}
 </style>
 </head><body><div id="root" class="app"></div><div id="drawer" class="drawer"></div>
 <script>
@@ -153,7 +158,7 @@ const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["students","activities","contents","messages","submissions","schedule","notes","accesses"];
 const CLOUD_STORAGE_BUCKET="jc-files";
-let cloudEnabled=true,cloudReady=false,cloudDirty=false,cloudPushTimer=null,cloudPushRunning=false,cloudLastError="",cloudLastPull=0;
+let cloudEnabled=true,cloudReady=false,cloudDirty=false,cloudPushTimer=null,cloudPushRunning=false,cloudPullRunning=false,cloudLastError="",cloudLastPull=0,cloudLastPush=0;
 const cloudShadow={};
 
 function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
@@ -183,7 +188,9 @@ async function cloudRequest(path,options={}){
  return r
 }
 async function cloudPull(initial=false){
- if(!cloudEnabled||cloudDirty||cloudPushRunning)return;
+ if(!cloudEnabled||cloudPullRunning||cloudPushRunning)return;
+ if(cloudDirty){await cloudPushDiff();if(cloudDirty)return}
+ cloudPullRunning=true;
  try{
   const r=await cloudRequest('/rest/v1/jc_records?select=collection,item_key,data,updated_at&order=collection.asc,item_key.asc');
   const rows=await r.json();
@@ -193,7 +200,7 @@ async function cloudPull(initial=false){
     CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]={});
     cloudReady=true;cloudDirty=true;await cloudPushDiff(true);return;
   }
-  let changed=false,missingCollection=false;
+  let changed=false;
   for(const k of CLOUD_COLLECTIONS){
     if(grouped[k].length){
       const rebuilt=rebuildCollection(k,grouped[k]);
@@ -202,15 +209,19 @@ async function cloudPull(initial=false){
       localStorage.setItem('jc_'+k,JSON.stringify(db[k]));
       if(before!==JSON.stringify(rebuilt))changed=true;
       const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
-    }else if(initial){cloudShadow[k]={};missingCollection=true}
+    }else{
+      cloudShadow[k]={};
+      if(initial && ((Array.isArray(db[k])&&db[k].length)||(db[k]&&typeof db[k]==='object'&&Object.keys(db[k]).length))){cloudDirty=true}
+    }
   }
   cloudReady=true;cloudLastError="";cloudLastPull=Date.now();
-  if(initial&&missingCollection){cloudDirty=true;await cloudPushDiff(false)}
+  if(initial&&cloudDirty)await cloudPushDiff(false);
   if(changed&&S.user){
     if(S.user.role==='student'){const fresh=db.students.find(x=>x.login===S.user.login);if(fresh)S.user={...fresh,role:'student'}}
     render();
   }
- }catch(err){cloudLastError=err.message;console.warn('Sincronização Supabase indisponível:',err);if(initial)toast('Supabase ainda não configurado. Execute o arquivo supabase_setup.sql.')}
+ }catch(err){cloudLastError=err.message;console.warn('Sincronização Supabase indisponível:',err);if(initial)toast('Não foi possível conectar ao Supabase. Verifique a internet e a configuração.')}
+ finally{cloudPullRunning=false;updateCloudIndicators()}
 }
 async function cloudPushDiff(force=false){
  if(!cloudEnabled||cloudPushRunning||(!cloudDirty&&!force))return;
@@ -229,13 +240,18 @@ async function cloudPushDiff(force=false){
     await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
   }
   CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
-  cloudDirty=false;cloudReady=true;cloudLastError="";
+  cloudDirty=false;cloudReady=true;cloudLastError="";cloudLastPush=Date.now();
  }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
- finally{cloudPushRunning=false;if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),2500)}
+ finally{cloudPushRunning=false;updateCloudIndicators();if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800)}
 }
-function scheduleCloudPush(){cloudDirty=true;clearTimeout(cloudPushTimer);cloudPushTimer=setTimeout(()=>cloudPushDiff(),650)}
+function scheduleCloudPush(){cloudDirty=true;updateCloudIndicators();clearTimeout(cloudPushTimer);cloudPushTimer=setTimeout(async()=>{await cloudPushDiff();if(!cloudDirty)await cloudPull(false)},120)}
 function persist(){Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));scheduleCloudPush()}
-async function initCloud(){await cloudPull(true);setInterval(()=>cloudPull(false),4000)}
+async function syncNow(showToast=false){
+ try{if(cloudDirty)await cloudPushDiff();await cloudPull(false);if(showToast&&!cloudLastError)toast('Dados sincronizados com o Supabase.')}catch(err){cloudLastError=err.message;if(showToast)toast('Não foi possível sincronizar agora.')}finally{updateCloudIndicators()}
+}
+function cloudStatusText(){if(cloudLastError)return '☁ Sem sincronização';if(cloudDirty||cloudPushRunning)return '☁ Enviando...';if(cloudReady)return '☁ Sincronizado';return '☁ Conectando...'}
+function updateCloudIndicators(){document.querySelectorAll('[data-cloud-status]').forEach(el=>{el.textContent=cloudStatusText();el.title=cloudLastError||'Dados compartilhados entre celular e computador'})}
+async function initCloud(){await cloudPull(true);setInterval(()=>syncNow(false),2000)}
 const MESSAGE_RETENTION_DAYS=30;
 function teacherUnreadCount(){return db.messages.filter(m=>m.from==='student'&&!m.readTeacher).length}
 function studentUnreadCount(login){return db.messages.filter(m=>m.login===login&&m.from==='teacher'&&!m.readStudent).length}
@@ -245,16 +261,16 @@ function profilePhotoKey(login){return `profile_${login}`}
 let pendingProfilePhoto=null,pendingProfilePhotoUrl='';
 function clearPendingProfilePhoto(){if(pendingProfilePhotoUrl){try{URL.revokeObjectURL(pendingProfilePhotoUrl)}catch{}}pendingProfilePhoto=null;pendingProfilePhotoUrl=''}
 function chooseStudentPhoto(file){if(!S.user||S.user.role!=='student'||!file)return;if(!file.type.startsWith('image/'))return toast('Selecione uma imagem.');if(file.size>5*1024*1024)return toast('A foto deve ter no máximo 5 MB.');clearPendingProfilePhoto();pendingProfilePhoto=file;pendingProfilePhotoUrl=URL.createObjectURL(file);const el=byId('photoPagePreview');if(el)el.innerHTML=`<img src="${pendingProfilePhotoUrl}" alt="Prévia da foto">`;const info=byId('photoSelectionInfo');if(info)info.textContent='Foto escolhida. Toque em Salvar foto para confirmar.';const btn=byId('saveProfilePhotoBtn');if(btn)btn.disabled=false}
-async function saveStudentPhoto(file){if(file)chooseStudentPhoto(file);if(!S.user||S.user.role!=='student'||!pendingProfilePhoto)return toast('Escolha uma foto para continuar.');try{const data=await compressProfileImage(pendingProfilePhoto);await saveFileBlob(profilePhotoKey(S.user.login),data);const st=db.students.find(x=>x.login===S.user.login);if(st){st.hasPhoto=true;S.user.hasPhoto=true;persist()}clearPendingProfilePhoto();toast('Foto do perfil atualizada.');go('student')}catch(err){console.error(err);toast('Não foi possível salvar a foto.')}}
+async function saveStudentPhoto(file){if(file)chooseStudentPhoto(file);if(!S.user||S.user.role!=='student'||!pendingProfilePhoto)return toast('Escolha uma foto para continuar.');try{const data=await compressProfileImage(pendingProfilePhoto);const oldKey=S.user.photoKey||profilePhotoKey(S.user.login);const newKey=`profile_${S.user.login}_${Date.now()}.jpg`;await saveFileBlob(newKey,data,true);const st=db.students.find(x=>x.login===S.user.login);if(st){st.hasPhoto=true;st.photoKey=newKey;st.photoUpdatedAt=Date.now();S.user={...st,role:'student'};persist()}if(oldKey&&oldKey!==newKey)deleteCloudFile(oldKey);clearPendingProfilePhoto();await syncNow(false);toast('Foto atualizada e sincronizada.');go('student')}catch(err){console.error(err);toast('Não foi possível enviar a foto ao Supabase. Verifique a conexão.')}}
 function compressProfileImage(file){return new Promise((resolve,reject)=>{const img=new Image(),url=URL.createObjectURL(file);img.onload=()=>{try{const size=180,c=document.createElement('canvas');c.width=size;c.height=size;const ctx=c.getContext('2d');const scale=Math.max(size/img.width,size/img.height),w=img.width*scale,h=img.height*scale,x=(size-w)/2,y=(size-h)/2;ctx.drawImage(img,x,y,w,h);c.toBlob(b=>{URL.revokeObjectURL(url);b?resolve(b):reject(new Error('Falha ao processar foto'))},'image/jpeg',.82)}catch(e){URL.revokeObjectURL(url);reject(e)}};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Imagem inválida'))};img.src=url})}
-async function loadProfilePhoto(login,targetId){try{const blob=await getFileBlob(profilePhotoKey(login));const el=byId(targetId);if(!blob||!el)return;const url=URL.createObjectURL(blob);el.innerHTML=`<img src="${url}" alt="Foto do aluno">`;el.classList.add('profileReady');el.dataset.photoUrl=url}catch(err){console.warn(err)}}
+async function loadProfilePhoto(login,targetId){try{const st=db.students.find(x=>x.login===login);const key=st?.photoKey||profilePhotoKey(login);const blob=await getFileBlob(key,!!st?.photoKey);const el=byId(targetId);if(!blob||!el)return;if(el.dataset.photoUrl){try{URL.revokeObjectURL(el.dataset.photoUrl)}catch{}}const url=URL.createObjectURL(blob);el.innerHTML=`<img src="${url}" alt="Foto do aluno">`;el.classList.add('profileReady');el.dataset.photoUrl=url}catch(err){console.warn(err)}}
 function loadVisibleStudentPhotos(){document.querySelectorAll('[data-photo-login]').forEach(el=>loadProfilePhoto(el.dataset.photoLogin,el.id))}
 function deleteMessage(id,returnPage){const m=db.messages.find(x=>x.id===id);if(!m)return;if(!confirm('Excluir esta mensagem?'))return;db.messages=db.messages.filter(x=>x.id!==id);persist();toast('Mensagem excluída.');go(returnPage)}
 function deleteConversation(login,returnPage){const count=db.messages.filter(m=>m.login===login).length;if(!count)return toast('Não há mensagens para excluir.');if(!confirm(`Excluir toda a conversa (${count} mensagem(ns))?`))return;db.messages=db.messages.filter(m=>m.login!==login);persist();toast('Conversa excluída.');go(returnPage)}
 function e(x){return String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 function toast(t){const d=document.createElement("div");d.textContent=t;Object.assign(d.style,{position:"fixed",right:"14px",bottom:"14px",zIndex:100,background:"#11213b",color:"white",padding:"12px 15px",borderRadius:"10px",fontWeight:"900",boxShadow:"0 8px 24px rgba(0,0,0,.2)"});document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
 function go(p){S.page=p;try{render()}catch(err){console.error(err);root.innerHTML=topbar()+`<main class="page"><div class="notice"><b>Não foi possível abrir esta tela.</b><br><span class="small">${e(err.message)}</span></div><button class="primary" onclick="S.page='teacher';render()">Voltar à área do professor</button></main>`}}function logout(){S.user=null;S.page="login";render()}
-function topbar(){const unread=S.user?(S.user.role==='teacher'?teacherUnreadCount():studentUnreadCount(S.user.login)):0;const target=S.user?.role==='teacher'?'messages':'studentTalk';return `<header class="top"><div class="top-left"><button class="iconbtn" onclick="openDrawer()">☰</button><button class="iconbtn" onclick="toast('Use o menu do navegador para adicionar à tela inicial.')">⇩</button><button class="iconbtn notificationBell" title="Mensagens" onclick="go('${target}')">🔔${unread?`<span class="notificationCount">${unread>99?'99+':unread}</span>`:''}</button></div><div class="brand"><img src="${LOGO}" alt="Logo CEPI/JT"><span>Sala Virtual<br>Prof. JC</span></div></header>`}
+function topbar(){const unread=S.user?(S.user.role==='teacher'?teacherUnreadCount():studentUnreadCount(S.user.login)):0;const target=S.user?.role==='teacher'?'messages':'studentTalk';return `<header class="top"><div class="top-left"><button class="iconbtn" onclick="openDrawer()">☰</button><button class="iconbtn" onclick="toast('Use o menu do navegador para adicionar à tela inicial.')">⇩</button><button class="iconbtn notificationBell" title="Mensagens" onclick="go('${target}')">🔔${unread?`<span class="notificationCount">${unread>99?'99+':unread}</span>`:''}</button><button class="cloudStatusBtn" data-cloud-status onclick="syncNow(true)" title="Sincronização">${cloudStatusText()}</button></div><div class="brand"><img src="${LOGO}" alt="Logo CEPI/JT"><span>Sala Virtual<br>Prof. JC</span></div></header>`}
 function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["development","Desenvolvimento dos alunos"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["studentPhoto","Minha foto"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>x[0]==='classes'?`<a href="#turmas" onclick="openClassesFromHash();closeDrawer();return false">${x[1]}</a>`:`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
 function closeDrawer(){drawer.classList.remove("open")}drawer.addEventListener("click",ev=>{if(ev.target===drawer)closeDrawer()});
 function render(){cleanupOldMessages();if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const routes={teacher,classes:classesPage,classStudents:classStudentsPage,students:studentsPage,schedule,activities,createActivity,activityList,content,development,messages,teacherTalk,submitted,access,student,studentPhoto,subjects,subjectPage,studentActs,send,studentTalk};const f=routes[S.page]||teacher;f()}
@@ -617,8 +633,8 @@ function cloudFilePath(key){return String(key).split('/').map(encodeURIComponent
 async function uploadCloudFile(key,file){const r=await fetch(SUPABASE_URL+'/storage/v1/object/'+CLOUD_STORAGE_BUCKET+'/'+cloudFilePath(key),{method:'POST',headers:{...supabaseHeaders({'x-upsert':'true','Content-Type':file.type||'application/octet-stream'})},body:file});if(!r.ok){const t=await r.text().catch(()=>"");throw new Error(`Storage ${r.status}: ${t||r.statusText}`)}}
 async function downloadCloudFile(key){const r=await fetch(SUPABASE_URL+'/storage/v1/object/'+CLOUD_STORAGE_BUCKET+'/'+cloudFilePath(key),{headers:supabaseHeaders()});if(r.status===404)return null;if(!r.ok)throw new Error('Não foi possível baixar o arquivo do Supabase.');return await r.blob()}
 async function deleteCloudFile(key){if(!key)return;try{await fetch(SUPABASE_URL+'/storage/v1/object/'+CLOUD_STORAGE_BUCKET+'/'+cloudFilePath(key),{method:'DELETE',headers:supabaseHeaders()})}catch(err){console.warn('Não foi possível excluir arquivo remoto',err)}}
-async function saveFileBlob(key,file){await saveFileBlobLocal(key,file);try{await uploadCloudFile(key,file)}catch(err){cloudLastError=err.message;console.warn('Arquivo ficou salvo apenas neste aparelho até o Supabase estar disponível.',err)}}
-async function getFileBlob(key){try{const local=await getFileBlobLocal(key);if(local)return local}catch{}try{const remote=await downloadCloudFile(key);if(remote){try{await saveFileBlobLocal(key,remote)}catch{}return remote}}catch(err){console.warn(err)}return null}
+async function saveFileBlob(key,file,requireCloud=true){await saveFileBlobLocal(key,file);try{await uploadCloudFile(key,file);cloudLastError="";updateCloudIndicators();return true}catch(err){cloudLastError=err.message;updateCloudIndicators();console.warn('Falha no envio do arquivo ao Supabase.',err);if(requireCloud)throw err;return false}}
+async function getFileBlob(key,preferRemote=false){if(preferRemote){try{const remote=await downloadCloudFile(key);if(remote){try{await saveFileBlobLocal(key,remote)}catch{}return remote}}catch(err){console.warn(err)}}try{const local=await getFileBlobLocal(key);if(local)return local}catch{}try{const remote=await downloadCloudFile(key);if(remote){try{await saveFileBlobLocal(key,remote)}catch{}return remote}}catch(err){console.warn(err)}return null}
 function getContentRemoteUrl(f){return f?.arquivoUrl||f?.fileUrl||f?.url||f?.publicUrl||f?.storageUrl||""}
 async function openContentFile(contentId,fileIndex){const item=db.contents.find(x=>x.id===contentId),f=item?.files?.[fileIndex];if(!f)return toast("Arquivo não encontrado.");const remote=getContentRemoteUrl(f);if(remote){window.open(remote,"_blank","noopener");return}try{let blob=f.storageKey?await getFileBlob(f.storageKey):null;if(!blob&&f.data){const r=await fetch(f.data);if(!r.ok)throw new Error("Falha ao abrir arquivo");blob=await r.blob()}if(!blob)return toast("Este arquivo não está disponível neste dispositivo. Reenvie o material para liberar a visualização.");const url=URL.createObjectURL(blob);window.open(url,"_blank","noopener");setTimeout(()=>URL.revokeObjectURL(url),60000)}catch(err){console.error(err);toast("Não foi possível visualizar o arquivo.")}}
 async function downloadContentFile(contentId,fileIndex){const item=db.contents.find(x=>x.id===contentId),f=item?.files?.[fileIndex];if(!f)return toast("Arquivo não encontrado.");const remote=getContentRemoteUrl(f);try{let blob=null;if(remote){const r=await fetch(remote);if(!r.ok)throw new Error("Falha ao baixar arquivo remoto");blob=await r.blob()}else if(f.storageKey){blob=await getFileBlob(f.storageKey)}if(!blob&&f.data){const r=await fetch(f.data);if(!r.ok)throw new Error("Falha ao baixar arquivo");blob=await r.blob()}if(!blob)return toast("Este arquivo não está disponível neste dispositivo. Reenvie o material para liberar o download.");const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=f.name||"arquivo";document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}catch(err){console.error(err);if(remote){window.open(remote,"_blank","noopener");toast("O arquivo foi aberto em outra aba. Use a opção de download do navegador.")}else toast("Não foi possível baixar o arquivo.")}}
