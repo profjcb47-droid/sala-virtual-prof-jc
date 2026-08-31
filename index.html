@@ -158,6 +158,7 @@ const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["students","activities","contents","messages","submissions","schedule","notes","accesses"];
 const CLOUD_STORAGE_BUCKET="jc-files";
+const CLOUD_SYNC_VERSION="3.0";
 let cloudEnabled=true,cloudReady=false,cloudDirty=false,cloudPushTimer=null,cloudPushRunning=false,cloudPullRunning=false,cloudLastError="",cloudLastPull=0,cloudLastPush=0;
 const cloudShadow={};
 
@@ -183,7 +184,10 @@ function rebuildCollection(collection,rows){
  return arr
 }
 async function cloudRequest(path,options={}){
- const r=await fetch(SUPABASE_URL+path,{...options,headers:{...supabaseHeaders(),...(options.headers||{})}});
+ const method=String(options.method||'GET').toUpperCase();
+ const fetchOptions={...options,cache:'no-store',headers:{...supabaseHeaders({'Cache-Control':'no-cache'}),...(options.headers||{})}};
+ if(method==='GET')fetchOptions.cache='no-store';
+ const r=await fetch(SUPABASE_URL+path,fetchOptions);
  if(!r.ok){const text=await r.text().catch(()=>"");throw new Error(`Supabase ${r.status}: ${text||r.statusText}`)}
  return r
 }
@@ -202,20 +206,16 @@ async function cloudPull(initial=false){
   }
   let changed=false;
   for(const k of CLOUD_COLLECTIONS){
-    if(grouped[k].length){
-      const rebuilt=rebuildCollection(k,grouped[k]);
-      const before=JSON.stringify(db[k]);
-      db[k]=rebuilt;
-      localStorage.setItem('jc_'+k,JSON.stringify(db[k]));
-      if(before!==JSON.stringify(rebuilt))changed=true;
-      const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
-    }else{
-      cloudShadow[k]={};
-      if(initial && ((Array.isArray(db[k])&&db[k].length)||(db[k]&&typeof db[k]==='object'&&Object.keys(db[k]).length))){cloudDirty=true}
-    }
+    /* O Supabase é a fonte oficial. Inclusive uma coleção vazia na nuvem
+       precisa apagar dados antigos que ficaram somente neste aparelho. */
+    const rebuilt=rebuildCollection(k,grouped[k]);
+    const before=JSON.stringify(db[k]);
+    db[k]=rebuilt;
+    localStorage.setItem('jc_'+k,JSON.stringify(db[k]));
+    if(before!==JSON.stringify(rebuilt))changed=true;
+    const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
   }
-  cloudReady=true;cloudLastError="";cloudLastPull=Date.now();
-  if(initial&&cloudDirty)await cloudPushDiff(false);
+  cloudReady=true;cloudLastError='';cloudLastPull=Date.now();
   if(changed&&S.user){
     if(S.user.role==='student'){const fresh=db.students.find(x=>x.login===S.user.login);if(fresh)S.user={...fresh,role:'student'}}
     render();
@@ -250,8 +250,15 @@ async function syncNow(showToast=false){
  try{if(cloudDirty)await cloudPushDiff();await cloudPull(false);if(showToast&&!cloudLastError)toast('Dados sincronizados com o Supabase.')}catch(err){cloudLastError=err.message;if(showToast)toast('Não foi possível sincronizar agora.')}finally{updateCloudIndicators()}
 }
 function cloudStatusText(){if(cloudLastError)return '☁ Sem sincronização';if(cloudDirty||cloudPushRunning)return '☁ Enviando...';if(cloudReady)return '☁ Sincronizado';return '☁ Conectando...'}
-function updateCloudIndicators(){document.querySelectorAll('[data-cloud-status]').forEach(el=>{el.textContent=cloudStatusText();el.title=cloudLastError||'Dados compartilhados entre celular e computador'})}
-async function initCloud(){await cloudPull(true);setInterval(()=>syncNow(false),2000)}
+function updateCloudIndicators(){document.querySelectorAll('[data-cloud-status]').forEach(el=>{el.textContent=cloudStatusText();el.title=cloudLastError||'Sincronização online ativa • versão 3'})}
+async function initCloud(){
+ await cloudPull(true);
+ setInterval(()=>syncNow(false),1500);
+ window.addEventListener('focus',()=>syncNow(false));
+ window.addEventListener('online',()=>syncNow(false));
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncNow(false)});
+}
+
 const MESSAGE_RETENTION_DAYS=30;
 function teacherUnreadCount(){return db.messages.filter(m=>m.from==='student'&&!m.readTeacher).length}
 function studentUnreadCount(login){return db.messages.filter(m=>m.login===login&&m.from==='teacher'&&!m.readStudent).length}
