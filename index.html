@@ -178,6 +178,81 @@ body:has(.loginPage) .sidebarOverlay{
   pointer-events:none!important;
 }
 
+
+/* Padronização compacta dos botões de ação no celular */
+@media (max-width:700px){
+  /* Botões dentro dos cartões e listas de conteúdo */
+  .card button,.card .btn,.card a.btn,
+  .panel button,.panel .btn,.panel a.btn,
+  .subjectCard button,.subjectCard .btn,
+  .activityCard button,.activityCard .btn,
+  .actions button,.actions .btn,.actions a,
+  .messageActions button,.messageActions .btn,
+  table button,table .btn,table a.btn{
+    width:auto!important;
+    min-width:0!important;
+    max-width:100%!important;
+    min-height:34px!important;
+    padding:6px 10px!important;
+    font-size:13px!important;
+    line-height:1.15!important;
+    border-radius:10px!important;
+    flex:0 0 auto!important;
+    white-space:nowrap!important;
+  }
+
+  /* Áreas com vários botões passam a usar somente o espaço necessário */
+  .actions,.messageActions,.toolrow{
+    display:flex!important;
+    flex-wrap:wrap!important;
+    align-items:center!important;
+    gap:7px!important;
+  }
+  .actions button,.actions .btn,.actions a,
+  .messageActions button,.messageActions .btn,.messageActions a{
+    flex-grow:0!important;
+  }
+
+  /* Botões azuis/primários não devem ocupar a largura inteira em ações de arquivo */
+  .card .primary,.panel .primary,.subjectCard .primary,.activityCard .primary,
+  .card .secondary,.panel .secondary,
+  .card .danger,.panel .danger{
+    width:auto!important;
+    min-width:0!important;
+    padding:7px 11px!important;
+    font-size:13px!important;
+  }
+
+  /* Mantém controles principais e formulários confortáveis */
+  form button[type="submit"],.loginCard button,.loginBox button{
+    min-height:44px!important;
+    padding:10px 14px!important;
+    font-size:15px!important;
+  }
+
+  /* Início continua um pouco maior e fácil de tocar */
+  .homeBtn,#homeBtn,
+  .topbar button[title*="Início"],
+  .topbar button[aria-label*="Início"]{
+    min-width:50px!important;
+    min-height:46px!important;
+    padding:8px 12px!important;
+    font-size:18px!important;
+  }
+}
+@media (max-width:420px){
+  .card button,.card .btn,.card a.btn,
+  .panel button,.panel .btn,.panel a.btn,
+  .subjectCard button,.subjectCard .btn,
+  .activityCard button,.activityCard .btn,
+  .actions button,.actions .btn,.actions a,
+  table button,table .btn,table a.btn{
+    min-height:32px!important;
+    padding:5px 8px!important;
+    font-size:12.5px!important;
+  }
+}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
