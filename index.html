@@ -130,7 +130,7 @@ font-family:Georgia,serif;font-size:38px;color:rgba(28,118,194,.075);transform:r
 
 /* Biblioteca Virtual */
 .libraryUploadBox{border:1px solid #dbe4ee;border-radius:16px;padding:18px;background:#fff;margin-top:14px}.libraryGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.libraryItem{border:1px solid #dbe4ee;border-radius:16px;padding:16px;background:#fff}.libraryItem h3{margin:8px 0}.libraryMeta{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.libraryActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.libraryType{font-size:12px;font-weight:800;padding:5px 9px;border-radius:999px;background:#eef6ff;color:#0b67b2}.libraryNew{font-size:11px;font-weight:900;padding:4px 7px;border-radius:999px;background:#ffe7e7;color:#b71c1c}.libraryProgress{margin:10px 0;font-size:13px;color:#536273}.libraryText{white-space:pre-wrap;line-height:1.55}.gradeStudentIdentity{max-width:760px;margin:0 auto 20px}.gradeStudentIdentity .avatar{width:72px;height:72px;min-width:72px;min-height:72px;border-radius:50%;overflow:hidden}.gradeStudentIdentity .avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}@media(max-width:640px){.libraryGrid{grid-template-columns:1fr}.libraryActions button{flex:1;min-width:120px}}
-</style>
+.classTopActions{display:grid;grid-template-columns:auto minmax(360px,1fr);gap:14px;align-items:start;margin-bottom:16px}.safeDeleteBox{border:1px solid #efc4c4;background:#fffafa;border-radius:14px;padding:12px}.safeDeleteBox label{display:block;color:#9d2525;margin-bottom:7px}.safeDeleteRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center}.safeDeleteRow select{width:100%;min-height:44px}.safeDeleteRow .danger{min-height:44px;white-space:nowrap}@media(max-width:720px){.classTopActions{grid-template-columns:1fr}.classTopActions>.primary{width:100%}.safeDeleteRow{grid-template-columns:1fr}.safeDeleteRow .danger{width:100%}.classManageGrid{grid-template-columns:1fr 1fr}.classManageCard{min-height:112px}}@media(max-width:420px){.classManageGrid{grid-template-columns:1fr 1fr}.classManageCard{padding:12px}.classManageText strong{font-size:18px}}</style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 
@@ -396,13 +396,32 @@ function classesPage(){
     <h1 class="center">Gerenciar turmas</h1>
     <p class="sub">Crie, renomeie e administre suas turmas sem alterar o arquivo do programa.</p>
     <div class="notice"><b>${CLASSES.length} turma${CLASSES.length===1?'':'s'} cadastrada${CLASSES.length===1?'':'s'} • ${all.length} alunos</b><br><span class="small">As alterações ficam salvas e sincronizadas.</span></div>
-    <div class="toolrow" style="justify-content:flex-end;margin-bottom:14px"><button type="button" class="primary" onclick="createClass()">＋ Criar nova turma</button></div>
+    <div class="classTopActions">
+  <button type="button" class="primary" onclick="createClass()">＋ Criar nova turma</button>
+  <div class="safeDeleteBox">
+    <label for="deleteClassSelect"><b>Excluir turma</b></label>
+    <div class="safeDeleteRow">
+      <select id="deleteClassSelect">
+        <option value="">Selecione a turma</option>
+        ${classInfo.map(info=>`<option value="${e(info.turma)}">${e(info.turma)} — ${info.quantidade} alunos</option>`).join("")}
+      </select>
+      <button type="button" class="danger" onclick="deleteSelectedClass()">🗑 Excluir turma</button>
+    </div>
+    <div class="small muted">Selecione primeiro a turma. A exclusão só acontece depois das confirmações.</div>
+  </div>
+</div>
     <div class="classManageGrid">
-      ${classInfo.map(info=>`<div class="classManageCard"><button type="button" class="classManageOpen" onclick="openClassStudents('${String(info.turma).replace(/'/g,"\\'")}')"><div class="classIcon">🏫</div><div class="classManageText"><strong>${e(info.turma)}</strong><span>${info.quantidade} alunos</span></div><div class="classArrow">›</div></button><button type="button" class="classManageDelete" onclick="deleteClassFromCard('${String(info.turma).replace(/'/g,"\\'")}')">🗑 Excluir</button></div>`).join("")||'<div class="empty">Nenhuma turma cadastrada.</div>'}
+      ${classInfo.map(info=>`<button type="button" class="classManageCard" onclick="openClassStudents('${String(info.turma).replace(/'/g,"\\'")}')"><div class="classIcon">🏫</div><div class="classManageText"><strong>${e(info.turma)}</strong><span>${info.quantidade} alunos</span></div><div class="classArrow">›</div></button>`).join("")||'<div class="empty">Nenhuma turma cadastrada.</div>'}
     </div>`;
 }
 function openClassStudents(turma){S.cls=turma;S.page="classStudents";render()}
-function deleteClassFromCard(turma){S.cls=turma;deleteCurrentClass()}
+function deleteSelectedClass(){
+  const turma=normalizeClassName(byId("deleteClassSelect")?.value||"");
+  if(!turma)return toast("Selecione a turma que deseja excluir.");
+  S.cls=turma;
+  deleteCurrentClass();
+}
+
 function classStudentsPage(){
   refreshClassesRef();
   if(!CLASSES.includes(S.cls)&&CLASSES.length)S.cls=CLASSES[0];
