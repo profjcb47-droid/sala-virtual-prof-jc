@@ -122,7 +122,36 @@ background-attachment:fixed;
 
 /* Biblioteca Virtual */
 .libraryUploadBox{border:1px solid #dbe4ee;border-radius:16px;padding:18px;background:#fff;margin-top:14px}.libraryGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}.libraryItem{border:1px solid #dbe4ee;border-radius:16px;padding:16px;background:#fff}.libraryItem h3{margin:8px 0}.libraryMeta{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.libraryActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.libraryType{font-size:12px;font-weight:800;padding:5px 9px;border-radius:999px;background:#eef6ff;color:#0b67b2}.libraryNew{font-size:11px;font-weight:900;padding:4px 7px;border-radius:999px;background:#ffe7e7;color:#b71c1c}.libraryProgress{margin:10px 0;font-size:13px;color:#536273}.libraryText{white-space:pre-wrap;line-height:1.55}.gradeStudentIdentity{max-width:760px;margin:0 auto 20px}.gradeStudentIdentity .avatar{width:72px;height:72px;min-width:72px;min-height:72px;border-radius:50%;overflow:hidden}.gradeStudentIdentity .avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}@media(max-width:640px){.libraryGrid{grid-template-columns:1fr}.libraryActions button{flex:1;min-width:120px}}
-.classTopActions{display:grid;grid-template-columns:auto minmax(360px,1fr);gap:14px;align-items:start;margin-bottom:16px}.safeDeleteBox{border:1px solid #efc4c4;background:#fffafa;border-radius:14px;padding:12px}.safeDeleteBox label{display:block;color:#9d2525;margin-bottom:7px}.safeDeleteRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center}.safeDeleteRow select{width:100%;min-height:44px}.safeDeleteRow .danger{min-height:44px;white-space:nowrap}@media(max-width:720px){.classTopActions{grid-template-columns:1fr}.classTopActions>.primary{width:100%}.safeDeleteRow{grid-template-columns:1fr}.safeDeleteRow .danger{width:100%}.classManageGrid{grid-template-columns:1fr 1fr}.classManageCard{min-height:112px}}@media(max-width:420px){.classManageGrid{grid-template-columns:1fr 1fr}.classManageCard{padding:12px}.classManageText strong{font-size:18px}}@media(max-width:700px){.loginPage{background-attachment:scroll;background-position:center top}}</style>
+.classTopActions{display:grid;grid-template-columns:auto minmax(360px,1fr);gap:14px;align-items:start;margin-bottom:16px}.safeDeleteBox{border:1px solid #efc4c4;background:#fffafa;border-radius:14px;padding:12px}.safeDeleteBox label{display:block;color:#9d2525;margin-bottom:7px}.safeDeleteRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center}.safeDeleteRow select{width:100%;min-height:44px}.safeDeleteRow .danger{min-height:44px;white-space:nowrap}@media(max-width:720px){.classTopActions{grid-template-columns:1fr}.classTopActions>.primary{width:100%}.safeDeleteRow{grid-template-columns:1fr}.safeDeleteRow .danger{width:100%}.classManageGrid{grid-template-columns:1fr 1fr}.classManageCard{min-height:112px}}@media(max-width:420px){.classManageGrid{grid-template-columns:1fr 1fr}.classManageCard{padding:12px}.classManageText strong{font-size:18px}}@media(max-width:700px){.loginPage{background-attachment:scroll;background-position:center top}}
+/* Ajustes de responsividade para celular */
+@media (max-width:700px){
+  .toolrow{gap:7px!important;flex-wrap:wrap!important}
+  .toolrow button,.toolrow .btn,.toolrow a{min-height:38px!important;padding:7px 10px!important;font-size:14px!important;line-height:1.15!important}
+  button.small,.btn.small,.smallBtn,.actionBtn,.messageDelete{min-height:36px!important;padding:6px 9px!important;font-size:13px!important}
+  .primary,.danger,.secondary{padding:8px 11px!important;font-size:14px!important}
+  table button,table .btn,table a{min-height:34px!important;padding:6px 8px!important;font-size:12.5px!important;white-space:nowrap!important}
+  .actions,.messageActions{gap:5px!important;flex-wrap:wrap!important}
+  .card,.panel,.subjectCard,.activityCard{padding:12px!important}
+  .grid,.cards,.classManageGrid{gap:10px!important}
+  .topbar{padding-left:10px!important;padding-right:10px!important}
+  .topbar button{min-width:42px!important;min-height:42px!important;padding:6px 9px!important}
+  .topbar button[title*="Início"],.topbar button[aria-label*="Início"],.homeBtn,#homeBtn{
+    min-width:50px!important;min-height:46px!important;font-size:18px!important;padding:8px 12px!important
+  }
+  input,select,textarea{font-size:16px!important}
+  .tableWrap{overflow-x:auto!important;-webkit-overflow-scrolling:touch!important}
+  .classManageText strong{font-size:17px!important}
+}
+@media (max-width:420px){
+  .toolrow button,.toolrow .btn,.toolrow a{font-size:13px!important;padding:6px 9px!important}
+  table button,table .btn,table a{font-size:12px!important;padding:5px 7px!important}
+  .primary,.danger,.secondary{font-size:13px!important;padding:7px 10px!important}
+  .topbar button[title*="Início"],.topbar button[aria-label*="Início"],.homeBtn,#homeBtn{
+    min-width:52px!important;min-height:48px!important
+  }
+}
+
+</style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
 
@@ -342,7 +371,21 @@ function deleteMessage(id,returnPage){const m=db.messages.find(x=>x.id===id);if(
 function deleteConversation(login,returnPage){const count=db.messages.filter(m=>m.login===login).length;if(!count)return toast('Não há mensagens para excluir.');if(!confirm(`Excluir toda a conversa (${count} mensagem(ns))?`))return;db.messages=db.messages.filter(m=>m.login!==login);persist();toast('Conversa excluída.');go(returnPage)}
 function e(x){return String(x??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 function toast(t){const d=document.createElement("div");d.textContent=t;Object.assign(d.style,{position:"fixed",right:"14px",bottom:"14px",zIndex:100,background:"#11213b",color:"white",padding:"12px 15px",borderRadius:"10px",fontWeight:"900",boxShadow:"0 8px 24px rgba(0,0,0,.2)"});document.body.appendChild(d);setTimeout(()=>d.remove(),2200)}
-function go(p){S.page=p;saveSessionState();try{render()}catch(err){console.error(err);root.innerHTML=topbar()+`<main class="page"><div class="notice"><b>Não foi possível abrir esta tela.</b><br><span class="small">${e(err.message)}</span></div><button class="primary" onclick="S.page='teacher';render()">Voltar à área do professor</button></main>`}}function logout(){S.user=null;S.page="login";saveSessionState();render()}
+function go(p){S.page=p;saveSessionState();try{render()}catch(err){console.error(err);root.innerHTML=topbar()+`<main class="page"><div class="notice"><b>Não foi possível abrir esta tela.</b><br><span class="small">${e(err.message)}</span></div><button class="primary" onclick="S.page='teacher';render()">Voltar à área do professor</button></main>`}}function logout(){
+  S.user=null;
+  S.page="login";
+  S.cls="";
+  S.chatLogin="";
+  try{
+    drawer.classList.remove("open");
+    drawer.innerHTML="";
+  }catch(err){}
+  try{
+    history.replaceState(null,"",location.pathname+location.search);
+  }catch(err){}
+  saveSessionState();
+  render();
+}
 function topbar(){const unread=S.user?(S.user.role==='teacher'?teacherUnreadCount():studentNotificationCount(S.user.login)):0;const target=S.user?.role==='teacher'?'messages':'studentNotifications';const title=S.user?.role==='teacher'?'Mensagens':'Notificações';return `<header class="top"><div class="top-left"><button class="iconbtn" onclick="openDrawer()">☰</button><button class="iconbtn" onclick="toast('Use o menu do navegador para adicionar à tela inicial.')">⇩</button><button class="iconbtn notificationBell" title="${title}" onclick="go('${target}')">🔔${unread?`<span class="notificationCount">${unread>99?'99+':unread}</span>`:''}</button></div><div class="brand"><img src="${LOGO}" alt="Logo CEPI/JT"><span>Sala Virtual<br>Prof. JC</span></div></header>`}
 function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["virtualLibraryTeacher","Biblioteca Virtual"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["studentNotifications","Notificações"],["studentLibrary","Biblioteca Virtual"],["studentPhoto","Minha foto"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>x[0]==='classes'?`<a href="#turmas" onclick="openClassesFromHash();closeDrawer();return false">${x[1]}</a>`:`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
 function closeDrawer(){drawer.classList.remove("open")}drawer.addEventListener("click",ev=>{if(ev.target===drawer)closeDrawer()});
@@ -356,7 +399,12 @@ function routeHash(){
 }
 window.addEventListener("hashchange",routeHash);
 
-function renderLogin(){root.innerHTML=`<section class="loginPage"><div class="loginBox"><img class="loginLogo" src="${LOGO}" alt="CEPI Jardim Tiradentes"><h1 class="loginTitle">Sala Virtual Prof. JC</h1><p class="muted">Bem-vindo à nossa sala virtual, Prof. JC!</p><div class="role"><button id="rStu" class="active">Aluno</button><button id="rTea">Professor</button></div><label>Usuário</label><input id="loginU" autocomplete="username"><label>Senha</label><input id="loginP" type="password" autocomplete="current-password"><button class="primary" style="width:100%;margin-top:14px" id="enter">Entrar</button><div class="links"><a href="#" id="help">Fale com o professor</a><a href="#" id="install">Instalar app no celular</a></div></div></section>`;rStu.onclick=()=>{S.role="student";rStu.classList.add("active");rTea.classList.remove("active")};rTea.onclick=()=>{S.role="teacher";rTea.classList.add("active");rStu.classList.remove("active")};enter.onclick=login;loginP.addEventListener("keydown",x=>{if(x.key==="Enter")login()});help.onclick=x=>{x.preventDefault();toast("Procure o Prof. JC para recuperar seu acesso.")};install.onclick=x=>{x.preventDefault();toast("No celular, use 'Adicionar à tela inicial' no navegador.")}}
+function renderLogin(){
+try{
+  drawer.classList.remove("open");
+  drawer.innerHTML="";
+}catch(err){}
+root.innerHTML=`<section class="loginPage"><div class="loginBox"><img class="loginLogo" src="${LOGO}" alt="CEPI Jardim Tiradentes"><h1 class="loginTitle">Sala Virtual Prof. JC</h1><p class="muted">Bem-vindo à nossa sala virtual, Prof. JC!</p><div class="role"><button id="rStu" class="active">Aluno</button><button id="rTea">Professor</button></div><label>Usuário</label><input id="loginU" autocomplete="username"><label>Senha</label><input id="loginP" type="password" autocomplete="current-password"><button class="primary" style="width:100%;margin-top:14px" id="enter">Entrar</button><div class="links"><a href="#" id="help">Fale com o professor</a><a href="#" id="install">Instalar app no celular</a></div></div></section>`;rStu.onclick=()=>{S.role="student";rStu.classList.add("active");rTea.classList.remove("active")};rTea.onclick=()=>{S.role="teacher";rTea.classList.add("active");rStu.classList.remove("active")};enter.onclick=login;loginP.addEventListener("keydown",x=>{if(x.key==="Enter")login()});help.onclick=x=>{x.preventDefault();toast("Procure o Prof. JC para recuperar seu acesso.")};install.onclick=x=>{x.preventDefault();toast("No celular, use 'Adicionar à tela inicial' no navegador.")}}
 function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u!==T.login||p!==T.senha)return toast("Usuário ou senha inválidos.");S.user=T;S.page="teacher"}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}saveSessionState();render()}
 function teacher(){const unread=teacherUnreadCount();const cards=[["🧠","Criar atividades e questionários","Crie avaliações manualmente, com imagens, gabarito e pontuação.","activities"],["📈","Notas das atividades online","Acompanhe por turma a soma, a média e o histórico das atividades realizadas.","gradesOverview"],["📚","Biblioteca Virtual","Publique livros, textos, documentos, fotos e PDFs para uma turma ou todas as turmas.","virtualLibraryTeacher"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["🏫","Gerenciar turmas","Abra cada turma do 9º Ano e gerencie os respectivos alunos.","classes"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="if('${x[3]}'==='classes'){openClassesFromHash()}else{go('${x[3]}')}"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='messages'&&unread?`<span class="cardBadge">${unread}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
 function byId(id){return document.getElementById(id)}
