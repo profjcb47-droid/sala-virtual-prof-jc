@@ -409,7 +409,7 @@ function classStudentsPage(){
   page.innerHTML=`
     <a class="back" href="#" onclick="go('classes');return false">← Gerenciar turmas</a>
     <h1 class="center">${e(S.cls)}</h1><p class="sub">${list.length} alunos cadastrados • em ordem de chamada</p>
-    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div></div>
+    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="danger" onclick="deleteCurrentClass()">🗑 Excluir turma</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div></div>
       <input id="classExcelInput" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none" onchange="importStudentsExcel(this.files[0]);this.value=''">
       <p class="small muted" style="margin:12px 0 0">Planilha: use as colunas <b>Número de chamada</b> e <b>Nome</b>. Também aceitamos cabeçalhos como “Nº”, “Chamada” e “Aluno”.</p>
     </div>
@@ -438,6 +438,34 @@ function deleteAllStudentsInClass(){
   if(!confirm(`Excluir TODOS os ${qty} alunos de ${S.cls}?\n\nEsta ação removerá os cadastros dos alunos desta turma.`))return;
   if(!confirm("Confirme novamente: deseja realmente apagar todos os alunos desta turma?"))return;
   db.students=db.students.filter(s=>s.turma!==S.cls);persist();toast("Todos os alunos da turma foram excluídos.");classStudentsPage();
+}
+function deleteCurrentClass(){
+  refreshClassesRef();
+  const turma=S.cls;
+  if(!turma||!CLASSES.includes(turma))return toast("Turma não encontrada.");
+  const alunos=(Array.isArray(db.students)?db.students:[]).filter(s=>s.turma===turma);
+  const qty=alunos.length;
+  const aviso=qty
+    ? `Excluir a turma ${turma} e também os ${qty} alunos cadastrados nela?\n\nEsta ação não pode ser desfeita.`
+    : `Excluir a turma ${turma}?\n\nEsta ação não pode ser desfeita.`;
+  if(!confirm(aviso))return;
+  if(qty&&!confirm(`Confirme novamente: excluir ${turma} e todos os seus ${qty} alunos?`))return;
+  const logins=new Set(alunos.map(s=>s.login).filter(Boolean));
+  db.students=(Array.isArray(db.students)?db.students:[]).filter(s=>s.turma!==turma);
+  db.classes=(Array.isArray(db.classes)?db.classes:[]).filter(c=>c!==turma);
+  if(db.schedule&&Object.prototype.hasOwnProperty.call(db.schedule,turma))delete db.schedule[turma];
+  if(db.accesses&&typeof db.accesses==='object')for(const login of logins)delete db.accesses[login];
+  if(Array.isArray(db.messages))db.messages=db.messages.filter(m=>!logins.has(m.login));
+  if(Array.isArray(db.activityResponses))db.activityResponses=db.activityResponses.filter(r=>!logins.has(r.login));
+  if(Array.isArray(db.submissions))db.submissions=db.submissions.filter(r=>!logins.has(r.login));
+  if(db.activityViews&&typeof db.activityViews==='object')for(const k of Object.keys(db.activityViews))if(logins.has(String(k).split(':')[0]))delete db.activityViews[k];
+  if(db.contentViews&&typeof db.contentViews==='object')for(const k of Object.keys(db.contentViews))if(logins.has(String(k).split(':')[0]))delete db.contentViews[k];
+  if(db.libraryViews&&typeof db.libraryViews==='object')for(const k of Object.keys(db.libraryViews))if(logins.has(String(k).split(':')[0]))delete db.libraryViews[k];
+  refreshClassesRef();
+  S.cls=CLASSES[0]||'';
+  persist();
+  toast(`Turma ${turma} excluída${qty?` com ${qty} alunos`:''}.`);
+  go('classes');
 }
 function classOpenEditor(st=null){
   const editor=byId("classStudentEditor");editor.classList.remove("hidden");byId("classEditOriginal").value=st?.login||"";byId("classCall").value=st?.chamada||"";byId("classTurma").value=st?.turma||S.cls;byId("className").value=st?.nome||"";byId("classStudentFormTitle").textContent=st?"Editar aluno":"Cadastrar aluno";byId("classSaveStudentBtn").textContent=st?"Salvar alterações":"Salvar aluno";byId("classSaveStudentBtn").onclick=classSaveStudent;byId("classCancelStudentBtn").onclick=()=>editor.classList.add("hidden");editor.scrollIntoView({behavior:"smooth",block:"start"});
