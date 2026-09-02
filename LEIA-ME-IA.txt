@@ -1,0 +1,10 @@
+TESTE DA IA - SALA VIRTUAL PROF. JC
+
+1. Publique este projeto no Vercel.
+2. Sem configurar chave, o botão "Criar com IA" funciona em MODO DE TESTE e adiciona questões demonstrativas.
+3. Para ativar a IA real, no Vercel abra Settings > Environment Variables e crie:
+   OPENAI_API_KEY = sua chave da API da OpenAI
+4. Faça um novo deploy.
+5. Opcional: OPENAI_MODEL = gpt-5-mini
+
+IMPORTANTE: nunca coloque a chave dentro do index.html.
