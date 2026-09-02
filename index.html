@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
+<!-- Credenciais automáticas: login padrão + senha aleatória única + exportação Excel v3 -->
 <!-- Biblioteca Google Drive corrigida: 2026-09-01 v2 -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -305,7 +306,8 @@ const db={
  activityResponses:JSON.parse(localStorage.getItem("jc_activityResponses")||"[]"),
  library:JSON.parse(localStorage.getItem("jc_library")||"[]"),
  libraryViews:JSON.parse(localStorage.getItem("jc_libraryViews")||"{}"),
- libraryLinks:JSON.parse(localStorage.getItem("jc_libraryLinks")||"{}")
+ libraryLinks:JSON.parse(localStorage.getItem("jc_libraryLinks")||"{}"),
+ usedStudentPasswords:JSON.parse(localStorage.getItem("jc_usedStudentPasswords")||"[]")
 };
 
 (function migrateRoster(){
@@ -320,6 +322,10 @@ const db={
    localStorage.setItem("jc_classes",JSON.stringify(db.classes));
  }
  CLASSES=db.classes;
+ const usedPasswords=new Set(Array.isArray(db.usedStudentPasswords)?db.usedStudentPasswords.map(String):[]);
+ (db.students||[]).forEach(st=>{if(/^\d{4}$/.test(String(st.senha||"")))usedPasswords.add(String(st.senha))});
+ db.usedStudentPasswords=[...usedPasswords];
+ localStorage.setItem("jc_usedStudentPasswords",JSON.stringify(db.usedStudentPasswords));
 })();
 
 const S={user:null,role:"student",page:"login",cls:"9º Ano A",sub:"Matemática",contentMode:"file",contentTab:"Arquivos",chatLogin:null,activityId:null};
@@ -591,6 +597,7 @@ function classesPage(){
     <div class="notice"><b>${CLASSES.length} turma${CLASSES.length===1?'':'s'} cadastrada${CLASSES.length===1?'':'s'} • ${all.length} alunos</b><br><span class="small">As alterações ficam salvas e sincronizadas.</span></div>
     <div class="classTopActions">
   <button type="button" class="primary" onclick="createClass()">＋ Criar nova turma</button>
+  <button type="button" class="secondary" onclick="downloadStudentCredentials()">📥 Baixar todas as credenciais</button>
   <div class="safeDeleteBox">
     <label for="deleteClassSelect"><b>Excluir turma</b></label>
     <div class="safeDeleteRow">
@@ -622,9 +629,9 @@ function classStudentsPage(){
   page.innerHTML=`
     <a class="back" href="#" onclick="go('classes');return false">← Gerenciar turmas</a>
     <h1 class="center">${e(S.cls)}</h1><p class="sub">${list.length} alunos cadastrados • em ordem de chamada</p>
-    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div></div>
+    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel</button><button type="button" class="secondary" onclick="downloadStudentCredentials(S.cls)">📥 Baixar credenciais</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div></div>
       <input id="classExcelInput" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none" onchange="importStudentsExcel(this.files[0]);this.value=''">
-      <p class="small muted" style="margin:12px 0 0">Planilha: use as colunas <b>Número de chamada</b> e <b>Nome</b>. Também aceitamos cabeçalhos como “Nº”, “Chamada” e “Aluno”.</p>
+      <p class="small muted" style="margin:12px 0 0">Planilha: use as colunas <b>Número de chamada</b> e <b>Nome</b>. Ao cadastrar ou importar novos alunos, o sistema cria automaticamente o login e uma <b>senha aleatória única de 4 dígitos</b>.</p>
     </div>
     <section id="classStudentEditor" class="panel hidden"><h3 id="classStudentFormTitle">Cadastrar aluno</h3><input id="classEditOriginal" type="hidden"><div class="form2"><div class="full"><label>Nome completo</label><input id="className" autocomplete="off" placeholder="Digite o nome do aluno"></div><div><label>Nº de chamada</label><input id="classCall" type="number" min="1" inputmode="numeric" placeholder="Ex.: 12"></div><div><label>Turma</label><select id="classTurma">${CLASSES.map(c=>`<option ${c===S.cls?'selected':''}>${e(c)}</option>`).join("")}</select></div></div><div class="toolrow"><button type="button" class="primary" id="classSaveStudentBtn">Salvar aluno</button><button type="button" class="secondary" id="classCancelStudentBtn">Cancelar</button></div></section>
     <div class="studentTablePanel"><div class="studentTableHead"><div>Nº</div><div>Aluno</div><div>Ações</div></div>${list.map(st=>`<div class="studentTableRow"><div class="studentCall">${e(st.chamada||"—")}</div><div class="studentName"><b>${e(st.nome)}</b></div><div class="studentRowActions"><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button><button type="button" class="danger" onclick="classDeleteStudent('${encodeURIComponent(st.login)}')">Excluir</button></div></div>`).join("")||'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>'}</div>`;
@@ -683,9 +690,59 @@ function deleteCurrentClass(){
 function classOpenEditor(st=null){
   const editor=byId("classStudentEditor");editor.classList.remove("hidden");byId("classEditOriginal").value=st?.login||"";byId("classCall").value=st?.chamada||"";byId("classTurma").value=st?.turma||S.cls;byId("className").value=st?.nome||"";byId("classStudentFormTitle").textContent=st?"Editar aluno":"Cadastrar aluno";byId("classSaveStudentBtn").textContent=st?"Salvar alterações":"Salvar aluno";byId("classSaveStudentBtn").onclick=classSaveStudent;byId("classCancelStudentBtn").onclick=()=>editor.classList.add("hidden");editor.scrollIntoView({behavior:"smooth",block:"start"});
 }
+function generateUniqueStudentPassword(){
+  if(!Array.isArray(db.usedStudentPasswords))db.usedStudentPasswords=[];
+  const used=new Set([
+    ...db.usedStudentPasswords.map(String),
+    ...(db.students||[]).map(s=>String(s.senha||""))
+  ].filter(x=>/^\d{4}$/.test(x)));
+  if(used.size>=9000)throw new Error("Todas as senhas de 4 dígitos disponíveis já foram utilizadas.");
+  let senha="";
+  do{
+    let value;
+    if(window.crypto&&typeof window.crypto.getRandomValues==="function"){
+      const buf=new Uint32Array(1);window.crypto.getRandomValues(buf);value=1000+(buf[0]%9000);
+    }else value=1000+Math.floor(Math.random()*9000);
+    senha=String(value);
+  }while(used.has(senha));
+  db.usedStudentPasswords.push(senha);
+  return senha;
+}
 function createInternalStudentCredentials(nome){
   const parts=(nome||"aluno").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").trim().split(/\s+/).filter(Boolean);
-  const root=(parts.slice(0,2).join("")||"aluno");let login=root,n=2;while(db.students.some(s=>String(s.login).toLowerCase()===login.toLowerCase()))login=root+(n++);const senha=String(1000+Math.floor(Math.random()*9000));return {login,senha};
+  const root=(parts.slice(0,2).join("")||"aluno");
+  let login=root,n=2;
+  while(db.students.some(s=>String(s.login).toLowerCase()===login.toLowerCase()))login=root+(n++);
+  return {login,senha:generateUniqueStudentPassword()};
+}
+function credentialsRowsForClass(turma){
+  return (db.students||[])
+    .filter(s=>!turma||s.turma===turma)
+    .sort((a,b)=>{
+      const ca=CLASSES.indexOf(a.turma),cb=CLASSES.indexOf(b.turma);
+      return ca-cb||(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR");
+    })
+    .map(s=>({
+      "Nº":Number(s.chamada)||"",
+      "Aluno":s.nome||"",
+      "Série":s.turma||"",
+      "Login":s.login||"",
+      "Senha":String(s.senha||"")
+    }));
+}
+function downloadStudentCredentials(turma=""){
+  if(!window.XLSX)return toast("O gerador de Excel ainda está carregando. Aguarde alguns segundos e tente novamente.");
+  const rows=credentialsRowsForClass(turma);
+  if(!rows.length)return toast("Não há alunos cadastrados para gerar a planilha.");
+  try{
+    const ws=XLSX.utils.json_to_sheet(rows,{header:["Nº","Aluno","Série","Login","Senha"]});
+    ws["!cols"]=[{wch:8},{wch:38},{wch:16},{wch:24},{wch:12}];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,"Credenciais");
+    const safe=(turma||"Todas_as_Turmas").normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]+/g,"_").replace(/^_+|_+$/g,"");
+    XLSX.writeFile(wb,`Credenciais_${safe}.xlsx`);
+    toast(`Planilha de credenciais gerada${turma?` para ${turma}`:" para todas as turmas"}.`);
+  }catch(err){console.error(err);toast("Não foi possível gerar a planilha de credenciais.")}
 }
 function classSaveStudent(){
   const chamada=parseInt(byId("classCall").value,10),turma=byId("classTurma").value,nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
