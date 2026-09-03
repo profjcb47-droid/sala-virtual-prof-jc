@@ -294,6 +294,37 @@ body:has(.loginPage) .sidebarOverlay{
 .publishQuickBtn{border:1px solid #9fcaf3;background:#eef7ff;color:#075b9d;border-radius:14px;min-height:46px;padding:0 14px;font-weight:800;font-size:14px;display:inline-flex;align-items:center;gap:7px;cursor:pointer;white-space:nowrap}
 .publishQuickBtn:hover{background:#dfefff}
 @media(max-width:640px){.publishQuickBtn{width:48px;padding:0;justify-content:center;font-size:20px}.publishQuickBtn span{display:none}}
+
+/* ===== Vistos por QR Code ===== */
+.visitMiniBadge{display:inline-flex;align-items:center;gap:6px;border:1px solid #f0c86a;background:#fff9e8;color:#6f4a00;border-radius:10px;padding:7px 10px;font-size:13px;font-weight:900;white-space:nowrap}
+.visitMiniBadge .visitStar{color:#f4aa00;font-size:18px;line-height:1}.visitMiniBadge b{color:#102847;font-size:15px}
+.visitTeacherStats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
+.visitStat{border:1px solid #dce5ee;background:#fff;border-radius:14px;padding:14px;text-align:center}.visitStat span{display:block;color:#687586;font-size:12px;font-weight:800;text-transform:uppercase}.visitStat b{display:block;font-size:29px;color:#073b78;margin-top:4px}
+.visitReaderGrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:14px;align-items:start}
+.visitScanBox{border:1px solid #d8e3ed;border-radius:16px;padding:16px;background:#fbfdff}.visitScanBox h3{margin-top:0}
+.visitQuickInput{font-size:17px;font-weight:750;border:2px solid #8fc2ef!important;background:#fff!important}
+.visitQuickInput:focus{border-color:#0968c1!important;box-shadow:0 0 0 4px rgba(9,104,193,.09)}
+.visitResult{min-height:78px;border-radius:14px;padding:14px;display:flex;align-items:center;gap:12px;border:1px solid #dce5ee;background:#f6f9fc;margin-top:12px}
+.visitResult.ok{background:#edfbf3;border-color:#9bd8b7;color:#12683b}.visitResult.warn{background:#fff8e5;border-color:#edcf7e;color:#725000}.visitResult.err{background:#fff0f0;border-color:#e7aaaa;color:#8a2929}
+.visitResultIcon{font-size:30px}.visitResult strong{display:block;font-size:16px}.visitResult small{display:block;margin-top:3px}
+.visitBatch{min-height:145px;font-family:inherit;resize:vertical}
+.visitTable{width:100%;border-collapse:collapse;min-width:720px}.visitTable th,.visitTable td{padding:10px;border-bottom:1px solid #e5ebf1;text-align:left}.visitTable th{font-size:11px;text-transform:uppercase;color:#687586;background:#f5f8fb}.visitTable tr:last-child td{border-bottom:0}
+.visitClassCards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px}.visitClassCard{border:1px solid #dce5ee;background:#fff;border-radius:12px;padding:11px;text-align:center}.visitClassCard b{font-size:24px;color:#075fae}.visitClassCard span{display:block;font-size:12px;color:#687586}
+.studentVisitSummary{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:14px}.studentVisitTotal{display:flex;align-items:center;justify-content:center;gap:20px;text-align:center}.studentVisitBigStar{font-size:64px;color:#f4aa00}.studentVisitNumber{font-size:64px;line-height:1;color:#075fc0;font-weight:950}.studentVisitHistoryTitle{font-size:19px;font-weight:900;color:#075fc0;margin-bottom:12px}
+.cameraQrWrap{border:1px solid #d8e3ed;border-radius:14px;overflow:hidden;background:#0d1720;margin-top:10px}.cameraQrWrap video{display:block;width:100%;max-height:360px;object-fit:cover}
+@media(max-width:780px){.visitTeacherStats,.visitClassCards{grid-template-columns:1fr 1fr}.visitReaderGrid,.studentVisitSummary{grid-template-columns:1fr}.visitMiniBadge{padding:6px 8px}.visitReaderGrid{gap:10px}}
+@media(max-width:470px){.visitTeacherStats,.visitClassCards{grid-template-columns:1fr}.studentVisitTotal{justify-content:flex-start}.visitMiniBadge{font-size:12px}.visitMiniBadge .visitStar{font-size:16px}}
+
+
+.visitPeriodBar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border:1px solid #d8e5ef;background:#f8fbfe;border-radius:14px;padding:12px 14px;margin:12px 0}
+.visitPeriodTag{display:inline-flex;align-items:center;gap:7px;background:#eaf4ff;color:#07599f;border:1px solid #b9d8f2;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:900}
+.visitDangerZone{margin-top:14px;border:1px solid #ecd0d0;background:#fffafa;border-radius:14px;padding:14px}
+.visitDangerZone h3{margin:0 0 8px;color:#8b2c2c}.visitDangerActions{display:flex;gap:8px;flex-wrap:wrap}
+.visitArchiveGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:10px}
+.visitArchiveCard{border:1px solid #dce5ee;background:#fff;border-radius:12px;padding:11px}.visitArchiveCard b{display:block;color:#075fae}.visitArchiveCard span{font-size:12px;color:#657383}
+@media(max-width:780px){.visitArchiveGrid{grid-template-columns:1fr 1fr}}
+@media(max-width:470px){.visitArchiveGrid{grid-template-columns:1fr}}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
@@ -329,6 +360,9 @@ const db={
  libraryLinks:JSON.parse(localStorage.getItem("jc_libraryLinks")||"{}"),
  announcements:JSON.parse(localStorage.getItem("jc_announcements")||"[]"),
  announcementReads:JSON.parse(localStorage.getItem("jc_announcementReads")||"{}"),
+ visits:JSON.parse(localStorage.getItem("jc_visits")||"[]"),
+ visitArchives:JSON.parse(localStorage.getItem("jc_visitArchives")||"[]"),
+ visitPeriod:JSON.parse(localStorage.getItem("jc_visitPeriod")||JSON.stringify({year:new Date().getFullYear(),bimester:1})),
  usedStudentPasswords:JSON.parse(localStorage.getItem("jc_usedStudentPasswords")||"[]")
 };
 
@@ -364,7 +398,7 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
-const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","schedule","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads"];
+const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","schedule","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod"];
 const CLOUD_STORAGE_BUCKET="jc-files";
 const CLOUD_SYNC_VERSION="3.0";
 let cloudEnabled=true,cloudReady=false,cloudDirty=false,cloudPushTimer=null,cloudPushRunning=false,cloudPullRunning=false,cloudLastError="",cloudLastPull=0,cloudLastPush=0;
@@ -580,9 +614,9 @@ function logout(){
   setTimeout(forceCloseNavigation,80);
 }
 function topbar(){const unread=S.user?(S.user.role==='teacher'?teacherUnreadCount():studentNotificationCount(S.user.login)):0;const target=S.user?.role==='teacher'?'messages':'studentNotifications';const title=S.user?.role==='teacher'?'Mensagens':'Notificações';const publishBtn=S.user?.role==='teacher'?`<button class="publishQuickBtn" onclick="go('announcementsTeacher')" title="Publicar mensagem">📢 <span>Publicar mensagem</span></button>`:'';return `<header class="top"><div class="top-left"><button class="iconbtn" onclick="openDrawer()">☰</button><button class="iconbtn" onclick="toast('Use o menu do navegador para adicionar à tela inicial.')">⇩</button><button class="iconbtn notificationBell" title="${title}" onclick="go('${target}')">🔔${unread?`<span class="notificationCount">${unread>99?'99+':unread}</span>`:''}</button>${publishBtn}</div><div class="brand"><img src="${LOGO}" alt="Logo CEPI/JT"><span>Sala Virtual<br>Prof. JC</span></div></header>`}
-function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["virtualLibraryTeacher","Biblioteca Virtual"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["announcementsTeacher","Publicar mensagem"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["studentNotifications","Notificações"],["studentLibrary","Biblioteca Virtual"],["studentPhoto","Minha foto"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>x[0]==='classes'?`<a href="#turmas" onclick="openClassesFromHash();closeDrawer();return false">${x[1]}</a>`:`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
+function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["visitsTeacher","Leitor de Vistos"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["virtualLibraryTeacher","Biblioteca Virtual"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["announcementsTeacher","Publicar mensagem"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["studentVisits","Meus Vistos"],["studentNotifications","Notificações"],["studentLibrary","Biblioteca Virtual"],["studentPhoto","Minha foto"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>x[0]==='classes'?`<a href="#turmas" onclick="openClassesFromHash();closeDrawer();return false">${x[1]}</a>`:`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
 function closeDrawer(){drawer.classList.remove("open")}drawer.addEventListener("click",ev=>{if(ev.target===drawer)closeDrawer()});
-function render(){cleanupOldMessages();if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const routes={teacher,classes:classesPage,classStudents:classStudentsPage,students:studentsPage,schedule,activities,createActivity,activityList,activityResults,gradesOverview,content,announcementsTeacher,studentAnnouncement,virtualLibraryTeacher,studentLibrary,development,messages,teacherTalk,submitted,access,student,studentNotifications,studentPhoto,subjects,subjectPage,studentActs,studentActivity,studentGrades,send,studentTalk};const f=routes[S.page]||teacher;f()}
+function render(){cleanupOldMessages();if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const routes={teacher,visitsTeacher,studentVisits,classes:classesPage,classStudents:classStudentsPage,students:studentsPage,schedule,activities,createActivity,activityList,activityResults,gradesOverview,content,announcementsTeacher,studentAnnouncement,virtualLibraryTeacher,studentLibrary,development,messages,teacherTalk,submitted,access,student,studentNotifications,studentPhoto,subjects,subjectPage,studentActs,studentActivity,studentGrades,send,studentTalk};const f=routes[S.page]||teacher;f()}
 function preserveActiveInteraction(){return S.page==='studentActivity'||S.page==='createActivity'}
 function routeHash(){
   if(location.hash==="#turmas" && S.user && S.user.role==="teacher"){
@@ -596,7 +630,197 @@ function renderLogin(){
 forceCloseNavigation();
 root.innerHTML=`<section class="loginPage"><div class="loginBox"><img class="loginLogo" src="${LOGO}" alt="CEPI Jardim Tiradentes"><h1 class="loginTitle">Sala Virtual Prof. JC</h1><p class="muted">Bem-vindo à nossa sala virtual, Prof. JC!</p><div class="role"><button id="rStu" class="active">Aluno</button><button id="rTea">Professor</button></div><label>Usuário</label><input id="loginU" autocomplete="username"><label>Senha</label><input id="loginP" type="password" autocomplete="current-password"><button class="primary" style="width:100%;margin-top:14px" id="enter">Entrar</button><div class="links"><a href="#" id="help">Fale com o professor</a><a href="#" id="install">Instalar app no celular</a></div></div></section>`;rStu.onclick=()=>{S.role="student";rStu.classList.add("active");rTea.classList.remove("active")};rTea.onclick=()=>{S.role="teacher";rTea.classList.add("active");rStu.classList.remove("active")};enter.onclick=login;loginP.addEventListener("keydown",x=>{if(x.key==="Enter")login()});help.onclick=x=>{x.preventDefault();toast("Procure o Prof. JC para recuperar seu acesso.")};install.onclick=x=>{x.preventDefault();toast("No celular, use 'Adicionar à tela inicial' no navegador.")}}
 function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u!==T.login||p!==T.senha)return toast("Usuário ou senha inválidos.");S.user=T;S.page="teacher"}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}saveSessionState();render()}
-function teacher(){const unread=teacherUnreadCount();const cards=[["🧠","Criar atividades e questionários","Crie avaliações manualmente, com imagens, gabarito e pontuação.","activities"],["📈","Notas das atividades online","Acompanhe por turma a soma, a média e o histórico das atividades realizadas.","gradesOverview"],["📚","Biblioteca Virtual","Cadastre os links do Google Drive usados nos três ícones da biblioteca dos alunos.","virtualLibraryTeacher"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["📢","Publicar mensagem","Envie avisos importantes para uma, várias ou todas as turmas.","announcementsTeacher"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["🏫","Gerenciar turmas","Abra cada turma do 9º Ano e gerencie os respectivos alunos.","classes"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="if('${x[3]}'==='classes'){openClassesFromHash()}else{go('${x[3]}')}"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='announcementsTeacher'?` `:''}${x[3]==='messages'&&unread?`<span class="cardBadge">${unread}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
+
+function visitDateKey(ts=Date.now()){const d=new Date(ts),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${day}`}
+function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}
+function normalizeVisitText(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª]/g,"").replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ")}
+function visitsForStudent(login){return (Array.isArray(db.visits)?db.visits:[]).filter(v=>v.login===login).sort((a,b)=>Number(b.createdAt||b.id||0)-Number(a.createdAt||a.id||0))}
+function visitTotal(login){return visitsForStudent(login).length}
+function hasVisitToday(login){const today=visitDateKey();return (db.visits||[]).some(v=>v.login===login&&v.date===today)}
+function findStudentFromQr(raw){
+ const text=normalizeVisitText(raw);if(!text)return null;
+ const students=[...(db.students||[])].sort((a,b)=>normalizeVisitText(b.nome).length-normalizeVisitText(a.nome).length);
+ let matches=students.filter(st=>{const name=normalizeVisitText(st.nome);return name&&(` ${text} `).includes(` ${name} `)});
+ if(matches.length===1)return matches[0];
+ if(matches.length>1){
+   const same=matches.filter(st=>st.turma===S.cls);if(same.length===1)return same[0];
+ }
+ const tokens=text.split(" ");
+ const possibleCall=tokens.find(t=>/^\d{1,2}$/.test(t));
+ if(possibleCall){
+   const sameClass=students.filter(st=>st.turma===S.cls&&String(Number(st.chamada))===String(Number(possibleCall)));
+   if(sameClass.length===1)return sameClass[0];
+ }
+ const tail=text.replace(/^(9\s*[a-z]?\s*)/,"").replace(/^\d{1,2}\s*/,"").trim();
+ matches=students.filter(st=>normalizeVisitText(st.nome)===tail);
+ return matches.length===1?matches[0]:null
+}
+let visitResultTimer=null,visitCameraStream=null,visitCameraLoop=null;
+function setVisitResult(type,title,detail=""){
+ const box=byId("visitResult");if(!box)return;
+ const icons={ok:"✅",warn:"⚠️",err:"❌",idle:"⭐"};
+ box.className=`visitResult ${type==="idle"?"":type}`.trim();
+ box.innerHTML=`<div class="visitResultIcon">${icons[type]||"⭐"}</div><div><strong>${e(title)}</strong>${detail?`<small>${e(detail)}</small>`:""}</div>`;
+ clearTimeout(visitResultTimer);
+ if(type!=="idle")visitResultTimer=setTimeout(()=>{const b=byId("visitResult");if(b){b.className="visitResult";b.innerHTML='<div class="visitResultIcon">⭐</div><div><strong>Aguardando próxima leitura</strong><small>Cole o QR ou use Enter para registrar.</small></div>'}},2600)
+}
+function registerVisitRaw(raw,quiet=false){
+ raw=String(raw||"").trim();if(!raw){if(!quiet)setVisitResult("warn","Nenhum QR informado.");return {ok:false,reason:"empty"}}
+ const st=findStudentFromQr(raw);
+ if(!st){if(!quiet)setVisitResult("err","Aluno não encontrado","Confira se o QR contém o nome completo do aluno.");return {ok:false,reason:"notfound"}}
+ const today=visitDateKey();
+ if((db.visits||[]).some(v=>v.login===st.login&&v.date===today)){
+   if(!quiet)setVisitResult("warn",`${st.nome} já recebeu o visto de hoje.`,`${st.turma} • total: ${visitTotal(st.login)} vistos`);
+   return {ok:false,reason:"duplicate",student:st}
+ }
+ if(!Array.isArray(db.visits))db.visits=[];
+ const now=Date.now();
+ db.visits.push({id:now+Math.floor(Math.random()*1000),login:st.login,nome:st.nome,turma:st.turma,date:today,createdAt:now,raw:raw.slice(0,500)});
+ persist();
+ if(!quiet)setVisitResult("ok",`${st.nome} — visto registrado!`,`${st.turma} • agora tem ${visitTotal(st.login)} visto(s)`);
+ return {ok:true,student:st}
+}
+function registerVisitInput(){
+ const input=byId("visitQuickInput");if(!input)return;
+ const raw=input.value.trim();if(!raw)return;
+ registerVisitRaw(raw);input.value="";input.focus();refreshVisitCounters()
+}
+function visitQuickKey(ev){if(ev.key==="Enter"){ev.preventDefault();registerVisitInput()}}
+function visitQuickPaste(){setTimeout(()=>registerVisitInput(),30)}
+async function pasteVisitFromClipboard(){
+ try{const text=await navigator.clipboard.readText();if(!text)return setVisitResult("warn","A área de transferência está vazia.");const input=byId("visitQuickInput");if(input){input.value=text;registerVisitInput()}}catch{setVisitResult("warn","Não consegui acessar a área de transferência.","Toque no campo e use Colar.")}
+}
+function processVisitBatch(){
+ const ta=byId("visitBatch");if(!ta)return;
+ const lines=ta.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+ if(!lines.length)return setVisitResult("warn","Cole uma ou mais leituras, uma por linha.");
+ let added=0,duplicates=0,notfound=0;
+ for(const line of lines){const r=registerVisitRaw(line,true);if(r.ok)added++;else if(r.reason==="duplicate")duplicates++;else notfound++}
+ ta.value="";persist();refreshVisitCounters();
+ setVisitResult(added?"ok":"warn",`${added} visto(s) registrado(s).`,`${duplicates} repetido(s) hoje • ${notfound} não encontrado(s)`);
+}
+function deleteVisit(id){
+ const v=(db.visits||[]).find(x=>String(x.id)===String(id));if(!v)return;
+ if(!confirm(`Excluir o visto de ${v.nome} em ${visitDateLabel(v.date)}?`))return;
+ db.visits=db.visits.filter(x=>String(x.id)!==String(id));persist();visitsTeacher()
+}
+function refreshVisitCounters(){
+ if(S.page!=="visitsTeacher")return;
+ const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today);
+ const el=byId("visitTodayCount");if(el)el.textContent=todayRows.length;
+ const total=byId("visitAllCount");if(total)total.textContent=(db.visits||[]).length;
+ const recent=byId("visitRecentBody");if(recent)recent.innerHTML=visitRecentRows(todayRows);
+ document.querySelectorAll("[data-visit-class]").forEach(el=>{el.textContent=todayRows.filter(v=>v.turma===el.dataset.visitClass).length})
+}
+function visitRecentRows(rows){
+ return [...rows].sort((a,b)=>Number(b.createdAt)-Number(a.createdAt)).slice(0,20).map(v=>`<tr><td>${new Date(v.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</td><td><b>${e(v.nome)}</b></td><td>${e(v.turma)}</td><td>${visitTotal(v.login)}</td><td><button class="danger miniAction" onclick="deleteVisit('${v.id}')">Excluir</button></td></tr>`).join("")||'<tr><td colspan="5" class="muted">Nenhum visto registrado hoje.</td></tr>'
+}
+async function startVisitCamera(){
+ if(!navigator.mediaDevices?.getUserMedia)return setVisitResult("warn","Câmera não disponível neste navegador.");
+ if(!("BarcodeDetector" in window))return setVisitResult("warn","Leitura direta de QR não é suportada neste navegador.","Use o seu aplicativo Scanner de Código QR e cole a leitura no campo acima.");
+ try{
+  stopVisitCamera();
+  visitCameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
+  const wrap=byId("visitCameraWrap"),video=byId("visitCameraVideo");if(!wrap||!video)return;
+  wrap.classList.remove("hidden");video.srcObject=visitCameraStream;await video.play();
+  const detector=new BarcodeDetector({formats:["qr_code"]});let last="",lastAt=0;
+  const loop=async()=>{if(!visitCameraStream)return;try{const codes=await detector.detect(video);if(codes[0]?.rawValue){const raw=codes[0].rawValue,now=Date.now();if(raw!==last||now-lastAt>2500){last=raw;lastAt=now;registerVisitRaw(raw);refreshVisitCounters()}}}catch{}visitCameraLoop=requestAnimationFrame(loop)};
+  loop()
+ }catch(err){setVisitResult("err","Não foi possível abrir a câmera.","Verifique a permissão do navegador.")}
+}
+function stopVisitCamera(){if(visitCameraLoop)cancelAnimationFrame(visitCameraLoop);visitCameraLoop=null;if(visitCameraStream){visitCameraStream.getTracks().forEach(t=>t.stop());visitCameraStream=null}const w=byId("visitCameraWrap");if(w)w.classList.add("hidden")}
+
+function currentVisitPeriod(){
+ if(!db.visitPeriod||typeof db.visitPeriod!=="object")db.visitPeriod={year:new Date().getFullYear(),bimester:1};
+ let year=parseInt(db.visitPeriod.year,10);let bim=parseInt(db.visitPeriod.bimester,10);
+ if(!Number.isFinite(year))year=new Date().getFullYear();if(!Number.isFinite(bim)||bim<1||bim>4)bim=1;
+ db.visitPeriod={year,bimester:bim};return db.visitPeriod
+}
+function visitPeriodLabel(){const p=currentVisitPeriod();return `${p.bimester}º Bimestre • ${p.year}`}
+function archiveCurrentVisits(kind,label){
+ const p=currentVisitPeriod(),rows=Array.isArray(db.visits)?db.visits:[];
+ if(!Array.isArray(db.visitArchives))db.visitArchives=[];
+ const snapshot=rows.map(v=>({...v}));
+ db.visitArchives.push({
+   id:Date.now()+Math.floor(Math.random()*1000),
+   kind, label,
+   year:p.year,bimester:p.bimester,
+   total:snapshot.length,
+   endedAt:Date.now(),
+   visits:snapshot
+ });
+}
+function endVisitBimester(){
+ const p=currentVisitPeriod(),count=(db.visits||[]).length;
+ const answer=prompt(`ENCERRAR ${p.bimester}º BIMESTRE DE ${p.year}\n\nExistem ${count} visto(s) no período atual.\nO histórico será arquivado e a contagem dos alunos voltará para 0.\n\nPara confirmar, digite: ENCERRAR`);
+ if(String(answer||"").trim().toUpperCase()!=="ENCERRAR")return toast("Operação cancelada.");
+ archiveCurrentVisits("bimester",`${p.bimester}º Bimestre de ${p.year}`);
+ db.visits=[];
+ if(p.bimester<4)db.visitPeriod={year:p.year,bimester:p.bimester+1};
+ else db.visitPeriod={year:p.year,bimester:4};
+ persist();
+ toast(`Bimestre encerrado. A nova contagem começou em 0.`);
+ visitsTeacher()
+}
+function startNewVisitYear(){
+ const p=currentVisitPeriod(),suggested=p.year+1;
+ const yearRaw=prompt(`INICIAR NOVO ANO LETIVO\n\nA contagem atual será zerada e o histórico ficará arquivado.\nDigite o ano letivo que deseja iniciar:`,String(suggested));
+ if(yearRaw===null)return;
+ const newYear=parseInt(String(yearRaw).trim(),10);
+ if(!Number.isFinite(newYear)||newYear<2020||newYear>2100)return toast("Ano inválido.");
+ const confirmText=prompt(`Você vai iniciar o ano letivo de ${newYear}.\nTodos os vistos ATUAIS voltarão para 0 e o novo período será 1º Bimestre.\n\nPara confirmar, digite: NOVO ANO`);
+ if(String(confirmText||"").trim().toUpperCase()!=="NOVO ANO")return toast("Operação cancelada.");
+ if((db.visits||[]).length)archiveCurrentVisits("yearClosing",`Fechamento ${p.year} — ${p.bimester}º Bimestre`);
+ db.visits=[];
+ db.visitPeriod={year:newYear,bimester:1};
+ persist();
+ toast(`Ano letivo ${newYear} iniciado. Todos os alunos estão com 0 vistos.`);
+ visitsTeacher()
+}
+function visitArchiveSummaryHtml(){
+ const arr=[...(db.visitArchives||[])].sort((a,b)=>Number(b.endedAt||b.id||0)-Number(a.endedAt||a.id||0)).slice(0,8);
+ if(!arr.length)return '<p class="muted small">Ainda não há bimestres arquivados.</p>';
+ return `<div class="visitArchiveGrid">${arr.map(a=>`<div class="visitArchiveCard"><b>${e(a.label||((a.bimester||1)+"º Bimestre de "+(a.year||"")))}</b><span>${Number(a.total||0)} visto(s) arquivados</span><br><span>Encerrado em ${new Date(a.endedAt||Date.now()).toLocaleDateString("pt-BR")}</span></div>`).join("")}</div>`
+}
+
+function visitsTeacher(){
+ stopVisitCamera();
+ const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today),classes=[...(db.classes||CLASSES||[])];
+ const classCards=classes.map(c=>`<div class="visitClassCard"><span>${e(c)}</span><b data-visit-class="${e(c)}">${todayRows.filter(v=>v.turma===c).length}</b><span>visto(s) hoje</span></div>`).join("");
+ page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a>
+ <h1 class="center">⭐ Leitor de Vistos</h1><p class="sub">Leitura rápida pelo celular. Cada aluno recebe no máximo 1 visto por dia.</p>
+ <div class="visitPeriodBar"><div><span class="visitPeriodTag">📘 ${visitPeriodLabel()}</span><div class="small muted" style="margin-top:5px">A contagem exibida aos alunos pertence somente ao período atual.</div></div></div>
+ <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
+ <div class="visitReaderGrid">
+  <section class="visitScanBox"><h3>📱 Leitura rápida</h3><p class="small muted">No app Scanner de Código QR, copie a leitura. Volte aqui e toque em <b>Colar e registrar</b>. Se o scanner funcionar como teclado, deixe o campo ativo e leia em sequência.</p>
+   <label>Turma de referência</label><select onchange="S.cls=this.value;visitsTeacher()">${classes.map(c=>`<option ${c===S.cls?"selected":""}>${e(c)}</option>`).join("")}</select>
+   <label style="margin-top:10px">Conteúdo do QR Code</label>
+   <input id="visitQuickInput" class="visitQuickInput" placeholder="Aguardando leitura do QR..." autocomplete="off" onkeydown="visitQuickKey(event)" onpaste="visitQuickPaste()">
+   <div class="actions" style="margin-top:9px"><button class="primary" onclick="pasteVisitFromClipboard()">📋 Colar e registrar</button><button class="secondary" onclick="startVisitCamera()">📷 Usar câmera</button></div>
+   <div id="visitCameraWrap" class="cameraQrWrap hidden"><video id="visitCameraVideo" playsinline muted></video><div style="padding:8px;background:#fff"><button class="secondary" onclick="stopVisitCamera()">Fechar câmera</button></div></div>
+   <div id="visitResult" class="visitResult"><div class="visitResultIcon">⭐</div><div><strong>Aguardando próxima leitura</strong><small>O campo fica pronto para o próximo aluno.</small></div></div>
+  </section>
+  <section class="visitScanBox"><h3>⚡ Colar várias leituras de uma vez</h3><p class="small muted">Se o seu scanner permite copiar o histórico, cole aqui com <b>uma leitura por linha</b>. O programa separa os alunos e registra todos de uma vez.</p>
+   <textarea id="visitBatch" class="visitBatch" placeholder="9ºE - 34. NOME DO ALUNO&#10;9ºE - 35. OUTRO ALUNO&#10;..."></textarea>
+   <button class="primary" style="width:100%;margin-top:8px" onclick="processVisitBatch()">Registrar lista</button>
+   <h3 style="margin-top:18px">Vistos por turma hoje</h3><div class="visitClassCards">${classCards}</div>
+  </section>
+ </div>
+ <section class="panel" style="margin-top:14px"><h3>Últimos vistos de hoje</h3><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></section>
+ <section class="panel" style="margin-top:14px"><h3>📚 Histórico arquivado</h3><p class="small muted">Ao encerrar um bimestre, os vistos saem da contagem atual, mas ficam guardados aqui como histórico.</p>${visitArchiveSummaryHtml()}</section>
+ <section class="visitDangerZone"><h3>⚙️ Fechamento de período</h3><p class="small muted">Use estes comandos somente no fechamento do bimestre ou no início de um novo ano letivo. Ambos exigem confirmação.</p><div class="visitDangerActions"><button class="secondary" onclick="endVisitBimester()">📘 Encerrar bimestre e zerar vistos</button><button class="danger" onclick="startNewVisitYear()">🗓️ Iniciar novo ano e começar do zero</button></div></section>`;
+ setTimeout(()=>byId("visitQuickInput")?.focus(),80)
+}
+function studentVisits(){
+ const rows=visitsForStudent(S.user.login),first=rows.length?rows[rows.length-1]:null,last=rows[0]||null;
+ page.innerHTML=`<a class="back" href="#" onclick="go('student');return false">← Início</a><h1 class="center">Meus Vistos</h1><p class="sub">Aqui você acompanha somente os seus próprios vistos — ${visitPeriodLabel()}.</p>
+ <div class="notice" style="background:#effaf3;border-color:#a8dcb9"><b>⭐ Cada aluno pode receber apenas 1 visto por dia.</b><br><span class="small">Os vistos são registrados pelo professor através do QR Code.</span></div>
+ <div class="panel studentVisitSummary"><div class="studentVisitTotal"><div class="studentVisitBigStar">★</div><div><div class="studentVisitNumber">${rows.length}</div><b>vistos recebidos</b></div></div>
+ <div><h3>Resumo</h3><div class="row"><div class="grow">📅 Primeiro visto</div><b>${first?visitDateLabel(first.date):"—"}</b></div><div class="row"><div class="grow">⭐ Último visto</div><b>${last?visitDateLabel(last.date):"—"}</b></div></div></div>
+ <section class="panel"><div class="studentVisitHistoryTitle">Histórico de vistos</div><div class="tableWrap"><table class="visitTable"><thead><tr><th>Data</th><th>Horário</th><th>Registro</th></tr></thead><tbody>${rows.map(v=>`<tr><td>✅ ${visitDateLabel(v.date)}</td><td>${new Date(v.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</td><td>Prof. JC</td></tr>`).join("")||'<tr><td colspan="3" class="muted">Você ainda não possui vistos registrados.</td></tr>'}</tbody></table></div></section>`;
+}
+
+function teacher(){const unread=teacherUnreadCount();const cards=[["⭐","Leitor de Vistos","Registre rapidamente os vistos dos alunos pelo QR Code, com limite de 1 por dia.","visitsTeacher"],["🧠","Criar atividades e questionários","Crie avaliações manualmente, com imagens, gabarito e pontuação.","activities"],["📈","Notas das atividades online","Acompanhe por turma a soma, a média e o histórico das atividades realizadas.","gradesOverview"],["📚","Biblioteca Virtual","Cadastre os links do Google Drive usados nos três ícones da biblioteca dos alunos.","virtualLibraryTeacher"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["📢","Publicar mensagem","Envie avisos importantes para uma, várias ou todas as turmas.","announcementsTeacher"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["🏫","Gerenciar turmas","Abra cada turma do 9º Ano e gerencie os respectivos alunos.","classes"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="if('${x[3]}'==='classes'){openClassesFromHash()}else{go('${x[3]}')}"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='announcementsTeacher'?` `:''}${x[3]==='messages'&&unread?`<span class="cardBadge">${unread}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
 function byId(id){return document.getElementById(id)}
 
 
@@ -1252,7 +1476,7 @@ function gradeStatsFor(login,disciplina=null){const rs=gradeResponsesFor(login,d
 function gradesOverview(){const students=db.students.filter(st=>st.turma===S.cls).sort((a,b)=>Number(a.chamada||0)-Number(b.chamada||0));const rows=students.map(st=>{const g=gradeStatsFor(st.login,S.sub);return `<tr><td>${e(st.chamada||'—')}</td><td><b>${e(st.nome)}</b></td><td>${g.count}</td><td class="gradeScore">${g.earned.toFixed(1)}</td><td>${g.possible.toFixed(1)}</td><td>${g.count?g.average.toFixed(2):'—'}</td><td>${g.pending?`<span class="gradePending">${g.pending} aguardando correção</span>`:'<span class="badge green">Atualizada</span>'}</td><td><button class="secondary miniAction" onclick="showStudentGradeDetail('${e(st.login)}')">Ver notas</button></td></tr>`}).join('');const classEarned=students.reduce((sum,st)=>sum+gradeStatsFor(st.login,S.sub).earned,0);const classDone=students.reduce((sum,st)=>sum+gradeStatsFor(st.login,S.sub).count,0);page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a><h1 class="center">Notas das atividades online</h1><p class="sub">Somatória e acompanhamento por aluno. Cada aluno vê apenas as próprias notas.</p><div class="tabs">${CLASSES.map(c=>`<button class="${c===S.cls?'active':''}" onclick="S.cls='${c}';gradesOverview()">${c}</button>`).join('')}</div><div class="tabs">${SUBJECTS.map(s=>`<button class="${s===S.sub?'active':''}" onclick="S.sub='${s}';gradesOverview()">${s}</button>`).join('')}</div><div class="gradeSummaryGrid"><div class="gradeSummaryCard"><span>Turma</span><b>${e(S.cls)}</b></div><div class="gradeSummaryCard"><span>Alunos</span><b>${students.length}</b></div><div class="gradeSummaryCard"><span>Atividades respondidas</span><b>${classDone}</b></div><div class="gradeSummaryCard"><span>Pontos somados</span><b>${classEarned.toFixed(1)}</b></div></div><div class="panel tableWrap"><table class="gradeTable"><thead><tr><th>Nº</th><th>Aluno</th><th>Atividades</th><th>Soma das notas</th><th>Valor possível</th><th>Média</th><th>Status</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="8" class="gradeEmpty">Nenhum aluno nesta turma.</td></tr>'}</tbody></table></div>`}
 function showStudentGradeDetail(login){const st=db.students.find(x=>x.login===login);if(!st)return;const rs=gradeResponsesFor(login,S.sub).sort((a,b)=>Number(b.submittedAt||0)-Number(a.submittedAt||0));const g=gradeStatsFor(login,S.sub);const rows=rs.map(r=>{const a=db.activities.find(x=>String(x.id)===String(r.activityId));if(!a)return'';const pending=(r.manualItems||[]).some(x=>x.notaManual==null);return `<tr><td>${e(a.titulo)}</td><td>${new Date(r.submittedAt||Date.now()).toLocaleDateString('pt-BR')}</td><td>${Number(r.notaAutomatica||0).toFixed(1)}</td><td>${Number(r.notaManual||0).toFixed(1)}</td><td><b>${Number(r.notaFinal||0).toFixed(1)} / ${activityTotal(a).toFixed(1)}</b></td><td>${pending?'<span class="gradePending">Aguardando discursiva</span>':'<span class="badge green">Concluída</span>'}</td></tr>`}).join('');page.innerHTML=`<a class="back" href="#" onclick="go('gradesOverview');return false">← Notas da turma</a><h1 class="center">${e(st.nome)}</h1><p class="sub">${e(st.turma)} • ${e(S.sub)}</p><div class="gradeSummaryGrid"><div class="gradeSummaryCard"><span>Atividades realizadas</span><b>${g.count}</b></div><div class="gradeSummaryCard"><span>Somatória</span><b>${g.earned.toFixed(1)}</b></div><div class="gradeSummaryCard"><span>Total possível</span><b>${g.possible.toFixed(1)}</b></div><div class="gradeSummaryCard"><span>Média</span><b>${g.count?g.average.toFixed(2):'—'}</b></div></div><div class="panel tableWrap"><table class="gradeTable"><thead><tr><th>Atividade</th><th>Data</th><th>Automática</th><th>Manual</th><th>Nota final</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="6" class="gradeEmpty">Nenhuma atividade realizada nesta disciplina.</td></tr>'}</tbody></table></div>`}
 function studentGrades(){const rs=gradeResponsesFor(S.user.login,S.sub).sort((a,b)=>Number(b.submittedAt||0)-Number(a.submittedAt||0));const g=gradeStatsFor(S.user.login,S.sub);const rows=rs.map(r=>{const a=db.activities.find(x=>String(x.id)===String(r.activityId));if(!a)return'';const pending=(r.manualItems||[]).some(x=>x.notaManual==null);return `<tr><td><b>${e(a.titulo)}</b></td><td>${new Date(r.submittedAt||Date.now()).toLocaleDateString('pt-BR')}</td><td><b>${Number(r.notaFinal||0).toFixed(1)} / ${activityTotal(a).toFixed(1)}</b></td><td>${pending?'<span class="gradePending">Aguardando correção</span>':'<span class="badge green">Concluída</span>'}</td></tr>`}).join('');page.innerHTML=`<a class="back" href="#" onclick="go('student');return false">← Início</a><div class="panel avatarline gradeStudentIdentity"><div class="avatar" id="grades_profile_photo">${e(S.user.nome[0])}</div><div class="grow"><b>${e(S.user.nome)}</b><div class="small muted">${e(S.user.turma)} • Notas individuais</div></div></div><h1 class="center">Minhas notas online</h1><p class="sub">Somente você pode visualizar suas notas.</p><div class="tabs">${SUBJECTS.map(s=>`<button class="${s===S.sub?'active':''}" onclick="S.sub='${s}';studentGrades()">${s}</button>`).join('')}</div><div class="gradeSummaryGrid"><div class="gradeSummaryCard"><span>Atividades realizadas</span><b>${g.count}</b></div><div class="gradeSummaryCard"><span>Somatória das notas</span><b>${g.earned.toFixed(1)}</b></div><div class="gradeSummaryCard"><span>Total possível</span><b>${g.possible.toFixed(1)}</b></div><div class="gradeSummaryCard"><span>Média</span><b>${g.count?g.average.toFixed(2):'—'}</b></div></div>${g.pending?`<div class="notice"><b>${g.pending} atividade(s)</b> ainda possuem questão discursiva aguardando correção do professor.</div>`:''}<div class="panel tableWrap"><table class="gradeTable"><thead><tr><th>Atividade</th><th>Data</th><th>Minha nota</th><th>Status</th></tr></thead><tbody>${rows||'<tr><td colspan="4" class="gradeEmpty">Você ainda não realizou atividades nesta disciplina.</td></tr>'}</tbody></table></div>`;setTimeout(()=>loadProfilePhoto(S.user.login,'grades_profile_photo'),0)}
-function student(){const unread=studentUnreadCount(S.user.login),unreadActs=studentUnreadActivityCount(S.user.login),unreadContent=studentUnreadContentCount(S.user.login),unreadAnnouncements=studentUnreadAnnouncementCount(S.user.login),allNotifications=studentNotificationCount(S.user.login);const latestAnnouncement=db.announcements.filter(a=>announcementTargetsStudent(a,S.user)&&!db.announcementReads[announcementReadKey(S.user.login,a.id)]).sort((a,b)=>Number(b.createdAt||b.id)-Number(a.createdAt||a.id))[0];page.innerHTML=`${latestAnnouncement?`<div class="panel" style="border:2px solid #0b63ce;padding:0;overflow:hidden"><div style="background:#0b63ce;color:#fff;padding:12px 16px;font-weight:800;font-size:18px">📢 Mensagem importante </div><div style="padding:18px"><h2 style="margin:0 0 10px;font-size:22px">${e(latestAnnouncement.titulo||'Atenção!')}</h2><div style="font-size:18px;line-height:1.6;white-space:pre-wrap">${e(latestAnnouncement.texto||'')}</div><button class="primary" style="width:100%;margin-top:16px" onclick="openAnnouncement(${latestAnnouncement.id})">Ler mensagem</button></div></div>`:''}<div class="panel avatarline"><div class="avatar" id="student_profile_photo">${e(S.user.nome[0])}</div><div class="grow"><b>Olá, ${e(S.user.nome.split(" " )[0])}!</b><div class="small muted">${e(S.user.turma)} • acesso exclusivo</div></div><div class="profileTools"><button class="secondary profilePhotoButton" onclick="go('studentPhoto')">📷 ${S.user.hasPhoto?'Trocar foto':'Adicionar foto'}</button></div></div><div class="notice"><b>${allNotifications?`Você tem ${allNotifications} nova(s) notificação(ões)`:'Atividades recebidas'}</b><br><span class="small">${allNotifications?'Abra suas notificações para ver atividades, comunicados, arquivos e mensagens pendentes.':'Confira as atividades e materiais publicados pelo professor.'}</span></div><h1 class="center">Sua turma</h1><p class="sub">Você pode acessar somente os conteúdos da sua turma.</p><div class="grid">${[["🎓",S.user.turma,"Acesse Matemática e Ciências.","subjects"],["🧠","Atividades e Questionários","Responda às atividades publicadas.","studentActs"],["📚","Biblioteca Virtual","Livros, textos, documentos, fotos e PDFs para estudar.","studentLibrary"],["🔔","Notificações","Veja tudo que foi publicado e ainda está pendente.","studentNotifications"],["📤","Enviar atividades/trabalhos","Envie arquivos ao professor.","send"],["🗓️","Horário escolar","Veja os horários da sua turma.","schedule"],["📈","Minhas notas online","Acompanhe somente suas notas e a somatória das atividades realizadas.","studentGrades"],["💬","Falar com o professor","Conversa privada com o Prof. JC.","studentTalk"]].map(x=>`<article class="card click" onclick="go('${x[3]}')"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='studentNotifications'&&allNotifications?`<span class="cardBadge">${allNotifications}</span>`:''}${x[3]==='studentLibrary'&&studentUnreadLibraryCount(S.user.login)?`<span class="cardBadge">${studentUnreadLibraryCount(S.user.login)}</span>`:''}${x[3]==='subjects'&&unreadContent?`<span class="cardBadge">${unreadContent}</span>`:''}${x[3]==='studentTalk'&&unread?`<span class="cardBadge">${unread}</span>`:''}${x[3]==='studentActs'&&unreadActs?`<span class="cardBadge">${unreadActs}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`;setTimeout(()=>loadProfilePhoto(S.user.login,'student_profile_photo'),0)}
+function student(){const unread=studentUnreadCount(S.user.login),unreadActs=studentUnreadActivityCount(S.user.login),unreadContent=studentUnreadContentCount(S.user.login),unreadAnnouncements=studentUnreadAnnouncementCount(S.user.login),allNotifications=studentNotificationCount(S.user.login);const latestAnnouncement=db.announcements.filter(a=>announcementTargetsStudent(a,S.user)&&!db.announcementReads[announcementReadKey(S.user.login,a.id)]).sort((a,b)=>Number(b.createdAt||b.id)-Number(a.createdAt||a.id))[0];page.innerHTML=`${latestAnnouncement?`<div class="panel" style="border:2px solid #0b63ce;padding:0;overflow:hidden"><div style="background:#0b63ce;color:#fff;padding:12px 16px;font-weight:800;font-size:18px">📢 Mensagem importante </div><div style="padding:18px"><h2 style="margin:0 0 10px;font-size:22px">${e(latestAnnouncement.titulo||'Atenção!')}</h2><div style="font-size:18px;line-height:1.6;white-space:pre-wrap">${e(latestAnnouncement.texto||'')}</div><button class="primary" style="width:100%;margin-top:16px" onclick="openAnnouncement(${latestAnnouncement.id})">Ler mensagem</button></div></div>`:''}<div class="panel avatarline"><div class="avatar" id="student_profile_photo">${e(S.user.nome[0])}</div><div class="grow"><b>Olá, ${e(S.user.nome.split(" " )[0])}!</b><div class="small muted">${e(S.user.turma)} • acesso exclusivo</div></div><div class="profileTools"><button class="secondary profilePhotoButton" onclick="go('studentPhoto')">📷 ${S.user.hasPhoto?'Trocar foto':'Adicionar foto'}</button><button class="visitMiniBadge" onclick="go('studentVisits')" title="Meus vistos"><span class="visitStar">★</span><b>${visitTotal(S.user.login)}</b><span>vistos</span></button></div></div><div class="notice"><b>${allNotifications?`Você tem ${allNotifications} nova(s) notificação(ões)`:'Atividades recebidas'}</b><br><span class="small">${allNotifications?'Abra suas notificações para ver atividades, comunicados, arquivos e mensagens pendentes.':'Confira as atividades e materiais publicados pelo professor.'}</span></div><h1 class="center">Sua turma</h1><p class="sub">Você pode acessar somente os conteúdos da sua turma.</p><div class="grid">${[["⭐","Meus Vistos","Veja sua quantidade e o histórico de vistos.","studentVisits"],["🎓",S.user.turma,"Acesse Matemática e Ciências.","subjects"],["🧠","Atividades e Questionários","Responda às atividades publicadas.","studentActs"],["📚","Biblioteca Virtual","Livros, textos, documentos, fotos e PDFs para estudar.","studentLibrary"],["🔔","Notificações","Veja tudo que foi publicado e ainda está pendente.","studentNotifications"],["📤","Enviar atividades/trabalhos","Envie arquivos ao professor.","send"],["🗓️","Horário escolar","Veja os horários da sua turma.","schedule"],["📈","Minhas notas online","Acompanhe somente suas notas e a somatória das atividades realizadas.","studentGrades"],["💬","Falar com o professor","Conversa privada com o Prof. JC.","studentTalk"]].map(x=>`<article class="card click" onclick="go('${x[3]}')"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='studentNotifications'&&allNotifications?`<span class="cardBadge">${allNotifications}</span>`:''}${x[3]==='studentLibrary'&&studentUnreadLibraryCount(S.user.login)?`<span class="cardBadge">${studentUnreadLibraryCount(S.user.login)}</span>`:''}${x[3]==='subjects'&&unreadContent?`<span class="cardBadge">${unreadContent}</span>`:''}${x[3]==='studentTalk'&&unread?`<span class="cardBadge">${unread}</span>`:''}${x[3]==='studentActs'&&unreadActs?`<span class="cardBadge">${unreadActs}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`;setTimeout(()=>loadProfilePhoto(S.user.login,'student_profile_photo'),0)}
 function studentPhoto(){clearPendingProfilePhoto();page.innerHTML=`<a class="back" href="#" onclick="go('student');return false">← Voltar para sua turma</a><h1 class="center">Minha foto</h1><p class="sub">Adicione ou troque sua foto de perfil.</p><div class="photoPageCard"><div class="photoPreview" id="photoPagePreview">${e(S.user.nome[0])}</div><div class="photoChooser"><b>📷 Adicionar foto</b><div class="small muted" style="margin-top:6px">JPG, PNG ou WebP • até 5 MB</div><div class="photoChooserActions"><input id="cameraPhotoInput" type="file" accept="image/*" capture="user" onchange="chooseStudentPhoto(this.files[0])"><button class="primary" onclick="byId('cameraPhotoInput').click()">📸 Tirar foto</button><input id="galleryPhotoInput" type="file" accept="image/jpeg,image/png,image/webp" onchange="chooseStudentPhoto(this.files[0])"><button class="secondary" onclick="byId('galleryPhotoInput').click()">🖼 Escolher da galeria</button></div></div><p class="photoHint">A foto fica vinculada ao seu perfil neste aplicativo.</p><p id="photoSelectionInfo" class="small muted center">${S.user.hasPhoto?'Você pode manter a foto atual ou escolher outra.':'Escolha uma foto para continuar.'}</p><button id="saveProfilePhotoBtn" class="primary photoSave" onclick="saveStudentPhoto()" disabled>Salvar foto</button></div>`;setTimeout(()=>loadProfilePhoto(S.user.login,'photoPagePreview'),0)}
 function subjects(){page.innerHTML=`<a class="back" href="#" onclick="go('student');return false">← Início</a><h1 class="center">${e(S.user.turma)}</h1><p class="sub">Escolha uma disciplina</p><div class="grid2">${SUBJECTS.map(s=>{const n=studentUnreadContentCount(S.user.login,s);return `<article class="card click" onclick="S.sub='${s}';go('subjectPage')"><div class="tile">${s==="Matemática"?"📐":"🧪"}</div><h3>${s}${n?`<span class="cardBadge">${n}</span>`:''}</h3><p>Arquivos, links e textos publicados pelo professor.</p></article>`}).join("")}</div>`}
 function subjectPage(){const arr=db.contents.filter(c=>c.turma===S.user.turma&&c.disciplina===S.sub);page.innerHTML=`<a class="back" href="#" onclick="go('subjects');return false">← Disciplinas</a><h1 class="center">${e(S.sub)}</h1><p class="sub">${e(S.user.turma)}</p><div class="list">${arr.map(x=>{const fresh=!db.contentViews[contentViewKey(S.user.login,x.id)];return `<div class="row"><div class="grow">${fresh?'':''}<b>${e(x.desc||"Conteúdo")}</b><span class="small muted">${x.type==="file"?e((x.files||[]).map(f=>f.name).join(", ")):x.type==="link"?e(x.link):e(x.text)}</span></div>${x.type==="file"?`<div class="downloadActions">${(x.files||[]).map((f,i)=>`<button class="secondary" onclick="openContentFile(${x.id},${i})" title="Visualizar ${e(f.name)}">👁 Visualizar</button><button class="downloadBtn" onclick="downloadContentFile(${x.id},${i})" title="Baixar ${e(f.name)}">⬇ Download</button>`).join("")}</div>`:x.type==="link"?`<button class="secondary" onclick="markContentViewed(${x.id});window.open('${e(x.link)}','_blank');subjectPage()">Abrir</button>`:`<button class="secondary" onclick="markContentViewed(${x.id});subjectPage()">✓ Marcar como lido</button>`}</div>`}).join("")||'<div class="empty">Nenhum conteúdo publicado ainda.</div>'}</div>`}
