@@ -327,6 +327,13 @@ body:has(.loginPage) .sidebarOverlay{
 
 
 #visitReadBtn:disabled{opacity:.65;cursor:wait}
+
+.visitRosterTools{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin:10px 0 12px}
+.visitRosterTools .grow{min-width:210px}
+.visitCountPill{display:inline-flex;align-items:center;justify-content:center;min-width:44px;padding:6px 10px;border-radius:999px;background:#fff7d8;border:1px solid #e7c45a;color:#6c4c00;font-weight:950}
+.visitZero{background:#f1f4f7;border-color:#d4dde5;color:#6a7580}
+@media(max-width:600px){.visitRosterTools{align-items:stretch}.visitRosterTools>*{width:100%}}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
@@ -820,6 +827,60 @@ function setVisitBimester(value){
  const sel=byId("visitBimesterSelect");if(sel&&String(sel.value)!==String(n))sel.value=String(n);
 }
 
+
+function visitRosterClass(){
+ const sel=byId("visitRosterClass");
+ return sel?.value||S.cls||(db.classes||CLASSES||[])[0]||""
+}
+function visitStudentNumber(st){
+ const raw=st?.chamada??st?.numero??st?.num??"";
+ return raw===""?"—":raw
+}
+function visitRosterRows(className){
+ const students=(db.students||[]).filter(st=>st.turma===className).sort((a,b)=>{
+   const na=Number(a.chamada),nb=Number(b.chamada);
+   if(Number.isFinite(na)&&Number.isFinite(nb)&&na!==nb)return na-nb;
+   return String(a.nome||"").localeCompare(String(b.nome||""),"pt-BR")
+ });
+ return students.map(st=>({student:st,total:visitTotal(st.login)}))
+}
+function visitRosterTableHtml(className){
+ const rows=visitRosterRows(className);
+ if(!rows.length)return '<tr><td colspan="4" class="muted">Nenhum aluno encontrado nesta turma.</td></tr>';
+ return rows.map(({student:st,total})=>`<tr><td>${e(String(visitStudentNumber(st)))}</td><td><b>${e(st.nome)}</b></td><td>${e(st.turma)}</td><td><span class="visitCountPill ${total===0?"visitZero":""}">⭐ ${total}</span></td></tr>`).join("")
+}
+function updateVisitRoster(){
+ const className=visitRosterClass();
+ const body=byId("visitRosterBody");if(body)body.innerHTML=visitRosterTableHtml(className);
+ const title=byId("visitRosterTitle");if(title)title.textContent=`Relação de Vistos — ${className}`;
+}
+function csvVisitEscape(value){
+ const v=String(value??"");
+ return `"${v.replace(/"/g,'""')}"`
+}
+function downloadVisitExcel(){
+ const className=visitRosterClass();
+ const rows=visitRosterRows(className);
+ if(!rows.length)return toast("Nenhum aluno encontrado nesta turma.");
+ const p=currentVisitPeriod();
+ const sep=";";
+ const lines=[
+   ["Nº","Aluno","Turma","Bimestre","Ano","Quantidade de vistos"].map(csvVisitEscape).join(sep),
+   ...rows.map(({student:st,total})=>[
+     visitStudentNumber(st),st.nome,st.turma,`${p.bimester}º Bimestre`,p.year,total
+   ].map(csvVisitEscape).join(sep))
+ ];
+ const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement("a");
+ const safe=String(className).normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase();
+ a.href=url;
+ a.download=`vistos-${safe}-${p.bimester}o-bimestre-${p.year}.csv`;
+ document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1200);
+ toast("Planilha baixada. Abra o arquivo no Excel.")
+}
+
 function visitsTeacher(){
  stopVisitCamera();
  const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today),classes=[...(db.classes||CLASSES||[])];
@@ -844,6 +905,15 @@ function visitsTeacher(){
   </section>
  </div>
  <section class="panel" style="margin-top:14px"><h3>Últimos vistos de hoje</h3><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></section>
+ <section class="panel" style="margin-top:14px">
+  <h3 id="visitRosterTitle">Relação de Vistos — ${e(S.cls)}</h3>
+  <p class="small muted">Todos os alunos da turma aparecem na lista, inclusive quem ainda está com 0 vistos no bimestre atual.</p>
+  <div class="visitRosterTools">
+   <div class="grow"><label>Turma</label><select id="visitRosterClass" onchange="updateVisitRoster()">${classes.map(c=>`<option value="${e(c)}" ${c===S.cls?"selected":""}>${e(c)}</option>`).join("")}</select></div>
+   <button class="primary" onclick="downloadVisitExcel()">📊 Baixar Excel</button>
+  </div>
+  <div class="tableWrap"><table class="visitTable"><thead><tr><th>Nº</th><th>Aluno</th><th>Turma</th><th>Vistos</th></tr></thead><tbody id="visitRosterBody">${visitRosterTableHtml(S.cls)}</tbody></table></div>
+ </section>
  <section class="panel" style="margin-top:14px"><h3>📚 Histórico arquivado</h3><p class="small muted">Ao encerrar um bimestre, os vistos saem da contagem atual, mas ficam guardados aqui como histórico.</p>${visitArchiveSummaryHtml()}</section>
  <section class="visitDangerZone"><h3>⚙️ Fechamento de período</h3><p class="small muted">Use estes comandos somente no fechamento do bimestre ou no início de um novo ano letivo. Ambos exigem confirmação.</p><div class="visitDangerActions"><button class="secondary" onclick="endVisitBimester()">📘 Encerrar bimestre e zerar vistos</button><button class="danger" onclick="startNewVisitYear()">🗓️ Iniciar novo ano e começar do zero</button></div></section>`;
 }
