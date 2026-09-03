@@ -365,6 +365,37 @@ body:has(.loginPage) .sidebarOverlay{
   #visitRosterContent{width:100%}
 }
 
+
+@media(max-width:700px){
+  .visitReaderGrid{margin-top:8px!important}
+  .visitScanBox{margin-top:0!important}
+  .visitTeacherStats{margin-top:12px!important}
+}
+
+
+.visitRecentToggle{display:none}
+@media(max-width:700px){
+  .visitRecentToggle{
+    display:flex!important;width:100%;align-items:center;justify-content:space-between;
+    gap:10px;border:1px solid #d8e3ed;background:#f8fbfe;border-radius:12px;
+    padding:12px 14px;font-weight:900;color:#0b5fa8;cursor:pointer;
+  }
+  .visitRecentMobileContent{display:none}
+  .visitRecentMobileContent.open{display:block;margin-top:12px}
+  .visitRecentArrow{transition:transform .18s ease}
+  .visitRecentToggle.open .visitRecentArrow{transform:rotate(90deg)}
+}
+
+
+@media(max-width:700px){
+ .visitRecentDesktopTitle{display:none!important}
+}
+
+
+@media(min-width:701px){
+ .visitRecentMobileContent{display:block!important}
+}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
@@ -944,6 +975,16 @@ function openVisitRosterMobile(){
  setTimeout(()=>byId("visitRosterPanel")?.scrollIntoView({behavior:"smooth",block:"start"}),50);
 }
 
+
+function toggleRecentVisitsMobile(){
+ const content=byId("visitRecentMobileContent"),btn=byId("visitRecentToggle");
+ if(!content||!btn)return;
+ const opening=!content.classList.contains("open");
+ content.classList.toggle("open",opening);
+ btn.classList.toggle("open",opening);
+ btn.setAttribute("aria-expanded",opening?"true":"false");
+}
+
 function toggleVisitRoster(){
  const content=byId("visitRosterContent"),btn=byId("visitRosterToggle");
  if(!content||!btn)return;
@@ -960,7 +1001,6 @@ function visitsTeacher(){
  page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a>
  <h1 class="center">⭐ Leitor de Vistos</h1><p class="sub">Leitura pelo celular com um toque por aluno. Cada aluno recebe no máximo 1 visto por dia.</p>
  <div class="visitPeriodBar"><div><span id="visitPeriodTag" class="visitPeriodTag">📘 ${visitPeriodLabel()}</span><div class="small muted" style="margin-top:5px">A contagem exibida aos alunos pertence somente ao período atual.</div></div><div><label class="small">Bimestre atual</label><select id="visitBimesterSelect" onchange="setVisitBimester(this.value)" style="min-width:145px">${[1,2,3,4].map(n=>`<option value="${n}" ${currentVisitPeriod().bimester===n?"selected":""}>${n}º Bimestre</option>`).join("")}</select></div></div><button class="visitRosterMobileQuick" onclick="openVisitRosterMobile()">📋 Ver Relação de Vistos</button>
- <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
  <div class="visitReaderGrid">
   <section class="visitScanBox"><h3>📱 Leitura rápida</h3><p class="small muted">Selecione a turma, abra a câmera e toque em <b>Fazer leitura</b> para cada aluno. Cada leitura válida registra o visto automaticamente.</p>
    <label>Turma de referência</label><select onchange="S.cls=this.value;visitsTeacher()">${classes.map(c=>`<option ${c===S.cls?"selected":""}>${e(c)}</option>`).join("")}</select>
@@ -974,7 +1014,7 @@ function visitsTeacher(){
    <button class="primary" style="width:100%;margin-top:8px" onclick="processVisitBatch()">Registrar lista</button>
   </section>
  </div>
- <section class="panel" style="margin-top:14px"><h3>Últimos vistos de hoje</h3><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></section>
+ <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id=<section class="panel" style="margin-top:14px"><h3 class="visitRecentDesktopTitle">Últimos vistos de hoje</h3><button id="visitRecentToggle" class="visitRecentToggle" aria-expanded="false" onclick="toggleRecentVisitsMobile()"><span>🕘 Últimos vistos de hoje</span><span class="visitRecentArrow">▶</span></button><div id="visitRecentMobileContent" class="visitRecentMobileContent"><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></div></section>ra</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></section>
  <section id="visitRosterPanel" class="panel" style="margin-top:14px">
   <button id="visitRosterToggle" class="visitRosterToggle" aria-expanded="false" onclick="toggleVisitRoster()"><span>📋 Relação de Vistos</span><span class="visitRosterArrow">▶</span></button>
   <div id="visitRosterContent" class="visitRosterContent hidden">
