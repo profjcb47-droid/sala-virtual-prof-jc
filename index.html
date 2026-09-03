@@ -765,6 +765,27 @@ async function startVisitCamera(){
   setVisitResult("idle","Câmera pronta","Aponte para o QR e toque em Fazer leitura.");
  }catch(err){setVisitResult("err","Não foi possível abrir a câmera.","Verifique a permissão do navegador.")}
 }
+
+function playVisitScanBeep(){
+ try{
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC)return;
+  if(!window.__visitAudioCtx)window.__visitAudioCtx=new AC();
+  const ctx=window.__visitAudioCtx;
+  if(ctx.state==="suspended")ctx.resume();
+  const osc=ctx.createOscillator();
+  const gain=ctx.createGain();
+  osc.type="sine";
+  osc.frequency.setValueAtTime(1100,ctx.currentTime);
+  gain.gain.setValueAtTime(0.0001,ctx.currentTime);
+  gain.gain.exponentialRampToValueAtTime(0.22,ctx.currentTime+0.006);
+  gain.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.115);
+  osc.connect(gain);gain.connect(ctx.destination);
+  osc.start(ctx.currentTime);
+  osc.stop(ctx.currentTime+0.12);
+ }catch(e){}
+}
+
 async function readVisitQrOnce(){
  if(visitCameraBusy)return;
  const video=byId("visitCameraVideo");
@@ -778,7 +799,7 @@ async function readVisitQrOnce(){
   if(!raw){
    setVisitResult("warn","QR Code não encontrado","Aponte a câmera para o QR e toque novamente em Fazer leitura.");
   }else{
-   registerVisitRaw(raw);
+   const reg=registerVisitRaw(raw);if(reg?.ok)playVisitScanBeep();
    refreshVisitCounters();
   }
  }catch(err){
