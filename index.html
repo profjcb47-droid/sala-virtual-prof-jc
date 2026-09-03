@@ -830,17 +830,19 @@ function logout(){
   setTimeout(forceCloseNavigation,80);
 }
 function topbar(){const unread=S.user?(S.user.role==='teacher'?teacherUnreadCount():studentNotificationCount(S.user.login)):0;const target=S.user?.role==='teacher'?'messages':'studentNotifications';const title=S.user?.role==='teacher'?'Mensagens':'Notificações';const publishBtn=S.user?.role==='teacher'?`<button class="publishQuickBtn" onclick="go('announcementsTeacher')" title="Publicar mensagem">📢 <span>Publicar mensagem</span></button>`:'';return `<header class="top"><div class="top-left"><button class="iconbtn" onclick="openDrawer()">☰</button><button class="iconbtn" onclick="toast('Use o menu do navegador para adicionar à tela inicial.')">⇩</button><button class="iconbtn notificationBell" title="${title}" onclick="go('${target}')">🔔${unread?`<span class="notificationCount">${unread>99?'99+':unread}</span>`:''}</button>${publishBtn}</div><div class="brand"><img src="${LOGO}" alt="Logo CEPI/JT"><span>Sala Virtual<br>Prof. JC</span></div></header>`}
-function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["visitsTeacher","Leitor de Vistos"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["virtualLibraryTeacher","Biblioteca Virtual"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["announcementsTeacher","Publicar mensagem"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["studentVisits","Meus Vistos"],["studentNotifications","Notificações"],["studentLibrary","Biblioteca Virtual"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>x[0]==='classes'?`<a href="#turmas" onclick="openClassesFromHash();closeDrawer();return false">${x[1]}</a>`:`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
+function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["visitsTeacher","Leitor de Vistos"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["virtualLibraryTeacher","Biblioteca Virtual"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["announcementsTeacher","Publicar mensagem"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["studentVisits","Meus Vistos"],["studentNotifications","Notificações"],["studentLibrary","Biblioteca Virtual"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>`<a href="javascript:void(0)" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="javascript:void(0)" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
 function closeDrawer(){drawer.classList.remove("open")}drawer.addEventListener("click",ev=>{if(ev.target===drawer)closeDrawer()});
 function render(){cleanupOldMessages();if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const routes={teacher,visitsTeacher,studentVisits,classes:classesPage,classStudents:classStudentsPage,students:studentsPage,schedule,activities,createActivity,activityList,activityResults,gradesOverview,content,announcementsTeacher,studentAnnouncement,virtualLibraryTeacher,studentLibrary,development,messages,teacherTalk,submitted,access,student,studentNotifications,subjects,subjectPage,studentActs,studentActivity,studentGrades,send,studentTalk};const f=routes[S.page]||teacher;f()}
 function preserveActiveInteraction(){return S.page==='studentActivity'||S.page==='createActivity'||S.page==='visitsTeacher'}
-function routeHash(){
-  if(location.hash==="#turmas" && S.user && S.user.role==="teacher"){
-    S.page="classes";
-    render();
-  }
+function keepCleanUrl(){
+  try{
+    if(window.location.hash){
+      history.replaceState(null,"",window.location.pathname+window.location.search);
+    }
+  }catch(err){}
 }
-window.addEventListener("hashchange",routeHash);
+keepCleanUrl();
+window.addEventListener("hashchange",keepCleanUrl);
 
 function renderLogin(){
 forceCloseNavigation();
@@ -1179,10 +1181,9 @@ function byId(id){return document.getElementById(id)}
 
 function openClassesFromHash(){
   if(!S.user || S.user.role!=="teacher"){ return toast("Entre como professor para acessar as turmas."); }
-  try{
-    window.location.hash="turmas";
-  }catch(err){}
+  keepCleanUrl();
   S.page="classes";
+  saveSessionState();
   render();
 }
 function normalizeClassName(name){return String(name||"").replace(/\s+/g," ").trim()}
