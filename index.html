@@ -1115,17 +1115,22 @@ function openClassesFromHash(){
 }
 function normalizeClassName(name){return String(name||"").replace(/\s+/g," ").trim()}
 function refreshClassesRef(){CLASSES=db.classes=Array.from(new Set((db.classes||[]).map(normalizeClassName).filter(Boolean)))}
-function createClass(){
-  const nome=normalizeClassName(prompt("Digite o nome da nova turma.\nExemplo: 8º Ano A"));
-  if(!nome)return;
+async function createClass(){
+  const field=byId("newClassName");
+  const nome=normalizeClassName(field?.value||"");
+  if(!nome){toast("Digite o nome da turma antes de salvar.");if(field)field.focus();return}
   refreshClassesRef();
   if(CLASSES.some(c=>c.toLocaleLowerCase("pt-BR")===nome.toLocaleLowerCase("pt-BR")))return toast("Essa turma já existe.");
   db.classes.push(nome);
   refreshClassesRef();
   S.cls=nome;
   persist();
+  const btn=byId("saveNewClassBtn");
+  if(btn){btn.disabled=true;btn.textContent="Salvando..."}
+  await syncNow(false);
   classesPage();
-  toast("Turma criada e salva.");
+  if(cloudLastError)toast("Turma salva neste aparelho. A sincronização online será tentada novamente.");
+  else toast("Turma salva com sucesso.");
 }
 function classesPage(){
   refreshClassesRef();
@@ -1136,8 +1141,15 @@ function classesPage(){
     <h1 class="center">Gerenciar turmas</h1>
     <p class="sub">Crie, renomeie e administre suas turmas sem alterar o arquivo do programa.</p>
     <div class="notice"><b>${CLASSES.length} turma${CLASSES.length===1?'':'s'} cadastrada${CLASSES.length===1?'':'s'} • ${all.length} alunos</b><br><span class="small">As alterações ficam salvas e sincronizadas.</span></div>
+    <div class="panel" style="margin-bottom:16px">
+      <label for="newClassName"><b>Cadastrar nova turma</b></label>
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;margin-top:8px">
+        <input id="newClassName" placeholder="Ex.: 9º Ano H" onkeydown="if(event.key==='Enter')createClass()">
+        <button id="saveNewClassBtn" type="button" class="primary" onclick="createClass()">💾 Salvar turma</button>
+      </div>
+      <div class="small muted" style="margin-top:7px">Digite o nome e clique em <b>Salvar turma</b>. A turma só é considerada cadastrada depois desse botão.</div>
+    </div>
     <div class="classTopActions">
-  <button type="button" class="primary" onclick="createClass()">＋ Criar nova turma</button>
   <button type="button" class="secondary" onclick="downloadStudentCredentials()">📥 Baixar todas as credenciais</button>
   <div class="safeDeleteBox">
     <label for="deleteClassSelect"><b>Excluir turma</b></label>
