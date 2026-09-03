@@ -374,26 +374,28 @@ body:has(.loginPage) .sidebarOverlay{
 
 
 .visitRecentToggle{display:none}
+.visitRecentContent{display:block}
 @media(max-width:700px){
+  .visitRecentDesktopTitle{display:none!important}
   .visitRecentToggle{
-    display:flex!important;width:100%;align-items:center;justify-content:space-between;
-    gap:10px;border:1px solid #d8e3ed;background:#f8fbfe;border-radius:12px;
-    padding:12px 14px;font-weight:900;color:#0b5fa8;cursor:pointer;
+    display:flex!important;
+    width:100%;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    border:1px solid #d8e3ed;
+    background:#f8fbfe;
+    border-radius:12px;
+    padding:12px 14px;
+    font-weight:900;
+    color:#0b5fa8;
+    cursor:pointer;
   }
-  .visitRecentMobileContent{display:none}
-  .visitRecentMobileContent.open{display:block;margin-top:12px}
+  .visitRecentContent{display:none}
+  .visitRecentContent.open{display:block;margin-top:12px}
   .visitRecentArrow{transition:transform .18s ease}
   .visitRecentToggle.open .visitRecentArrow{transform:rotate(90deg)}
-}
-
-
-@media(max-width:700px){
- .visitRecentDesktopTitle{display:none!important}
-}
-
-
-@media(min-width:701px){
- .visitRecentMobileContent{display:block!important}
+  .visitRecentPanel{padding:12px!important}
 }
 
 </style>
@@ -977,7 +979,7 @@ function openVisitRosterMobile(){
 
 
 function toggleRecentVisitsMobile(){
- const content=byId("visitRecentMobileContent"),btn=byId("visitRecentToggle");
+ const content=byId("visitRecentContent"),btn=byId("visitRecentToggle");
  if(!content||!btn)return;
  const opening=!content.classList.contains("open");
  content.classList.toggle("open",opening);
@@ -1014,7 +1016,13 @@ function visitsTeacher(){
    <button class="primary" style="width:100%;margin-top:8px" onclick="processVisitBatch()">Registrar lista</button>
   </section>
  </div>
- <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id=<section class="panel" style="margin-top:14px"><h3 class="visitRecentDesktopTitle">Últimos vistos de hoje</h3><button id="visitRecentToggle" class="visitRecentToggle" aria-expanded="false" onclick="toggleRecentVisitsMobile()"><span>🕘 Últimos vistos de hoje</span><span class="visitRecentArrow">▶</span></button><div id="visitRecentMobileContent" class="visitRecentMobileContent"><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></div></section>ra</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></section>
+ <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
+
+ <section class="panel visitRecentPanel" style="margin-top:14px">
+  <h3 class="visitRecentDesktopTitle">Últimos vistos de hoje</h3>
+  <button id="visitRecentToggle" class="visitRecentToggle" aria-expanded="false" onclick="toggleRecentVisitsMobile()"><span>🕘 Últimos vistos de hoje</span><span class="visitRecentArrow">▶</span></button>
+  <div id="visitRecentContent" class="visitRecentContent"><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></div>
+ </section>
  <section id="visitRosterPanel" class="panel" style="margin-top:14px">
   <button id="visitRosterToggle" class="visitRosterToggle" aria-expanded="false" onclick="toggleVisitRoster()"><span>📋 Relação de Vistos</span><span class="visitRosterArrow">▶</span></button>
   <div id="visitRosterContent" class="visitRosterContent hidden">
