@@ -325,6 +325,8 @@ body:has(.loginPage) .sidebarOverlay{
 @media(max-width:780px){.visitArchiveGrid{grid-template-columns:1fr 1fr}}
 @media(max-width:470px){.visitArchiveGrid{grid-template-columns:1fr}}
 
+
+#visitReadBtn:disabled{opacity:.65;cursor:wait}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
@@ -655,7 +657,7 @@ function findStudentFromQr(raw){
  matches=students.filter(st=>normalizeVisitText(st.nome)===tail);
  return matches.length===1?matches[0]:null
 }
-let visitResultTimer=null,visitCameraStream=null,visitCameraLoop=null;
+let visitResultTimer=null,visitCameraStream=null,visitQrDetector=null,visitCameraBusy=false;
 function setVisitResult(type,title,detail=""){
  const box=byId("visitResult");if(!box)return;
  const icons={ok:"✅",warn:"⚠️",err:"❌",idle:"⭐"};
@@ -723,12 +725,39 @@ async function startVisitCamera(){
   visitCameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
   const wrap=byId("visitCameraWrap"),video=byId("visitCameraVideo");if(!wrap||!video)return;
   wrap.classList.remove("hidden");video.srcObject=visitCameraStream;await video.play();
-  const detector=new BarcodeDetector({formats:["qr_code"]});let last="",lastAt=0;
-  const loop=async()=>{if(!visitCameraStream)return;try{const codes=await detector.detect(video);if(codes[0]?.rawValue){const raw=codes[0].rawValue,now=Date.now();if(raw!==last||now-lastAt>2500){last=raw;lastAt=now;registerVisitRaw(raw);refreshVisitCounters()}}}catch{}visitCameraLoop=requestAnimationFrame(loop)};
-  loop()
+  visitQrDetector=new BarcodeDetector({formats:["qr_code"]});
+  setVisitResult("idle","Câmera pronta","Aponte para o QR e toque em Fazer leitura.");
  }catch(err){setVisitResult("err","Não foi possível abrir a câmera.","Verifique a permissão do navegador.")}
 }
-function stopVisitCamera(){if(visitCameraLoop)cancelAnimationFrame(visitCameraLoop);visitCameraLoop=null;if(visitCameraStream){visitCameraStream.getTracks().forEach(t=>t.stop());visitCameraStream=null}const w=byId("visitCameraWrap");if(w)w.classList.add("hidden")}
+async function readVisitQrOnce(){
+ if(visitCameraBusy)return;
+ const video=byId("visitCameraVideo");
+ if(!visitCameraStream||!video||!visitQrDetector)return setVisitResult("warn","Abra a câmera primeiro.");
+ visitCameraBusy=true;
+ const btn=byId("visitReadBtn");
+ if(btn){btn.disabled=true;btn.textContent="🔎 Lendo..."}
+ try{
+  const codes=await visitQrDetector.detect(video);
+  const raw=codes?.[0]?.rawValue||"";
+  if(!raw){
+   setVisitResult("warn","QR Code não encontrado","Aponte a câmera para o QR e toque novamente em Fazer leitura.");
+  }else{
+   registerVisitRaw(raw);
+   refreshVisitCounters();
+  }
+ }catch(err){
+  setVisitResult("err","Não consegui ler o QR Code.","Tente aproximar ou afastar um pouco o celular.");
+ }finally{
+  visitCameraBusy=false;
+  if(btn){btn.disabled=false;btn.textContent="📷 Fazer leitura"}
+ }
+}
+function stopVisitCamera(){
+ visitCameraBusy=false;
+ visitQrDetector=null;
+ if(visitCameraStream){visitCameraStream.getTracks().forEach(t=>t.stop());visitCameraStream=null}
+ const w=byId("visitCameraWrap");if(w)w.classList.add("hidden")
+}
 
 function currentVisitPeriod(){
  if(!db.visitPeriod||typeof db.visitPeriod!=="object")db.visitPeriod={year:new Date().getFullYear(),bimester:1};
@@ -788,16 +817,16 @@ function visitsTeacher(){
  const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today),classes=[...(db.classes||CLASSES||[])];
  const classCards=classes.map(c=>`<div class="visitClassCard"><span>${e(c)}</span><b data-visit-class="${e(c)}">${todayRows.filter(v=>v.turma===c).length}</b><span>visto(s) hoje</span></div>`).join("");
  page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a>
- <h1 class="center">⭐ Leitor de Vistos</h1><p class="sub">Leitura rápida pelo celular. Cada aluno recebe no máximo 1 visto por dia.</p>
+ <h1 class="center">⭐ Leitor de Vistos</h1><p class="sub">Leitura pelo celular com um toque por aluno. Cada aluno recebe no máximo 1 visto por dia.</p>
  <div class="visitPeriodBar"><div><span class="visitPeriodTag">📘 ${visitPeriodLabel()}</span><div class="small muted" style="margin-top:5px">A contagem exibida aos alunos pertence somente ao período atual.</div></div></div>
  <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
  <div class="visitReaderGrid">
-  <section class="visitScanBox"><h3>📱 Leitura rápida</h3><p class="small muted">No app Scanner de Código QR, copie a leitura. Volte aqui e toque em <b>Colar e registrar</b>. Se o scanner funcionar como teclado, deixe o campo ativo e leia em sequência.</p>
+  <section class="visitScanBox"><h3>📱 Leitura rápida</h3><p class="small muted">Você pode continuar usando o app Scanner de Código QR e colar a leitura aqui. Pela câmera do programa, abra a câmera e toque em <b>Fazer leitura</b> para cada aluno.</p>
    <label>Turma de referência</label><select onchange="S.cls=this.value;visitsTeacher()">${classes.map(c=>`<option ${c===S.cls?"selected":""}>${e(c)}</option>`).join("")}</select>
    <label style="margin-top:10px">Conteúdo do QR Code</label>
    <input id="visitQuickInput" class="visitQuickInput" placeholder="Aguardando leitura do QR..." autocomplete="off" onkeydown="visitQuickKey(event)" onpaste="visitQuickPaste()">
-   <div class="actions" style="margin-top:9px"><button class="primary" onclick="pasteVisitFromClipboard()">📋 Colar e registrar</button><button class="secondary" onclick="startVisitCamera()">📷 Usar câmera</button></div>
-   <div id="visitCameraWrap" class="cameraQrWrap hidden"><video id="visitCameraVideo" playsinline muted></video><div style="padding:8px;background:#fff"><button class="secondary" onclick="stopVisitCamera()">Fechar câmera</button></div></div>
+   <div class="actions" style="margin-top:9px"><button class="primary" onclick="pasteVisitFromClipboard()">📋 Colar e registrar</button><button class="secondary" onclick="startVisitCamera()">📷 Abrir câmera</button></div>
+   <div id="visitCameraWrap" class="cameraQrWrap hidden"><video id="visitCameraVideo" playsinline muted></video><div style="padding:10px;background:#fff;display:flex;gap:8px;flex-wrap:wrap"><button id="visitReadBtn" class="primary" onclick="readVisitQrOnce()">📷 Fazer leitura</button><button class="secondary" onclick="stopVisitCamera()">Fechar câmera</button></div><div class="small muted" style="background:#fff;padding:0 10px 10px">Cada toque em <b>Fazer leitura</b> lê somente um QR. Encontrando o aluno, o visto é salvo automaticamente. Depois, aponte para o próximo aluno e toque novamente.</div></div>
    <div id="visitResult" class="visitResult"><div class="visitResultIcon">⭐</div><div><strong>Aguardando próxima leitura</strong><small>O campo fica pronto para o próximo aluno.</small></div></div>
   </section>
   <section class="visitScanBox"><h3>⚡ Colar várias leituras de uma vez</h3><p class="small muted">Se o seu scanner permite copiar o histórico, cole aqui com <b>uma leitura por linha</b>. O programa separa os alunos e registra todos de uma vez.</p>
