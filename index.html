@@ -763,7 +763,7 @@ function currentVisitPeriod(){
  if(!Number.isFinite(year))year=new Date().getFullYear();if(!Number.isFinite(bim)||bim<1||bim>4)bim=1;
  db.visitPeriod={year,bimester:bim};return db.visitPeriod
 }
-function visitPeriodLabel(){const p=currentVisitPeriod();return `${p.bimester}º Bimestre • ${p.year}`}
+function visitPeriodLabel(){const p=currentVisitPeriod();return `${p.bimester}º Bimestre`}
 function archiveCurrentVisits(kind,label){
  const p=currentVisitPeriod(),rows=Array.isArray(db.visits)?db.visits:[];
  if(!Array.isArray(db.visitArchives))db.visitArchives=[];
@@ -810,19 +810,30 @@ function visitArchiveSummaryHtml(){
  return `<div class="visitArchiveGrid">${arr.map(a=>`<div class="visitArchiveCard"><b>${e(a.label||((a.bimester||1)+"º Bimestre de "+(a.year||"")))}</b><span>${Number(a.total||0)} visto(s) arquivados</span><br><span>Encerrado em ${new Date(a.endedAt||Date.now()).toLocaleDateString("pt-BR")}</span></div>`).join("")}</div>`
 }
 
+function setVisitBimester(value){
+ const n=parseInt(value,10);if(![1,2,3,4].includes(n))return;
+ const p=currentVisitPeriod();
+ if(n===p.bimester)return;
+ if((db.visits||[]).length){
+  const ok=confirm(`Existem ${(db.visits||[]).length} visto(s) no ${p.bimester}º Bimestre.\n\nTrocar diretamente para o ${n}º Bimestre não apaga esses vistos. Para zerar e arquivar corretamente, use “Encerrar bimestre”.\n\nDeseja apenas alterar o bimestre exibido?`);
+  if(!ok){visitsTeacher();return}
+ }
+ db.visitPeriod={year:p.year,bimester:n};persist();visitsTeacher()
+}
+
 function visitsTeacher(){
  stopVisitCamera();
  const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today),classes=[...(db.classes||CLASSES||[])];
  const classCards=classes.map(c=>`<div class="visitClassCard"><span>${e(c)}</span><b data-visit-class="${e(c)}">${todayRows.filter(v=>v.turma===c).length}</b><span>visto(s) hoje</span></div>`).join("");
  page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a>
  <h1 class="center">⭐ Leitor de Vistos</h1><p class="sub">Leitura pelo celular com um toque por aluno. Cada aluno recebe no máximo 1 visto por dia.</p>
- <div class="visitPeriodBar"><div><span class="visitPeriodTag">📘 ${visitPeriodLabel()}</span><div class="small muted" style="margin-top:5px">A contagem exibida aos alunos pertence somente ao período atual.</div></div></div>
+ <div class="visitPeriodBar"><div><span class="visitPeriodTag">📘 ${visitPeriodLabel()}</span><div class="small muted" style="margin-top:5px">A contagem exibida aos alunos pertence somente ao período atual.</div></div><div><label class="small">Bimestre atual</label><select onchange="setVisitBimester(this.value)" style="min-width:145px">${[1,2,3,4].map(n=>`<option value="${n}" ${currentVisitPeriod().bimester===n?"selected":""}>${n}º Bimestre</option>`).join("")}</select></div></div>
  <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
  <div class="visitReaderGrid">
   <section class="visitScanBox"><h3>📱 Leitura rápida</h3><p class="small muted">Você pode continuar usando o app Scanner de Código QR e colar a leitura aqui. Pela câmera do programa, abra a câmera e toque em <b>Fazer leitura</b> para cada aluno.</p>
    <label>Turma de referência</label><select onchange="S.cls=this.value;visitsTeacher()">${classes.map(c=>`<option ${c===S.cls?"selected":""}>${e(c)}</option>`).join("")}</select>
    <label style="margin-top:10px">Conteúdo do QR Code</label>
-   <input id="visitQuickInput" class="visitQuickInput" placeholder="Aguardando leitura do QR..." autocomplete="off" onkeydown="visitQuickKey(event)" onpaste="visitQuickPaste()">
+   <input id="visitQuickInput" class="visitQuickInput" placeholder="Aguardando leitura do QR..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" onkeydown="visitQuickKey(event)" onpaste="visitQuickPaste()">
    <div class="actions" style="margin-top:9px"><button class="primary" onclick="pasteVisitFromClipboard()">📋 Colar e registrar</button><button class="secondary" onclick="startVisitCamera()">📷 Abrir câmera</button></div>
    <div id="visitCameraWrap" class="cameraQrWrap hidden"><video id="visitCameraVideo" playsinline muted></video><div style="padding:10px;background:#fff;display:flex;gap:8px;flex-wrap:wrap"><button id="visitReadBtn" class="primary" onclick="readVisitQrOnce()">📷 Fazer leitura</button><button class="secondary" onclick="stopVisitCamera()">Fechar câmera</button></div><div class="small muted" style="background:#fff;padding:0 10px 10px">Cada toque em <b>Fazer leitura</b> lê somente um QR. Encontrando o aluno, o visto é salvo automaticamente. A confirmação fica na tela até a próxima leitura.</div></div>
    <div id="visitResult" class="visitResult"><div class="visitResultIcon">⭐</div><div><strong>Aguardando próxima leitura</strong><small>O campo fica pronto para o próximo aluno.</small></div></div>
@@ -836,8 +847,8 @@ function visitsTeacher(){
  <section class="panel" style="margin-top:14px"><h3>Últimos vistos de hoje</h3><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></section>
  <section class="panel" style="margin-top:14px"><h3>📚 Histórico arquivado</h3><p class="small muted">Ao encerrar um bimestre, os vistos saem da contagem atual, mas ficam guardados aqui como histórico.</p>${visitArchiveSummaryHtml()}</section>
  <section class="visitDangerZone"><h3>⚙️ Fechamento de período</h3><p class="small muted">Use estes comandos somente no fechamento do bimestre ou no início de um novo ano letivo. Ambos exigem confirmação.</p><div class="visitDangerActions"><button class="secondary" onclick="endVisitBimester()">📘 Encerrar bimestre e zerar vistos</button><button class="danger" onclick="startNewVisitYear()">🗓️ Iniciar novo ano e começar do zero</button></div></section>`;
- setTimeout(()=>byId("visitQuickInput")?.focus(),80)
 }
+
 function studentVisits(){
  const rows=visitsForStudent(S.user.login),first=rows.length?rows[rows.length-1]:null,last=rows[0]||null;
  page.innerHTML=`<a class="back" href="#" onclick="go('student');return false">← Início</a><h1 class="center">Meus Vistos</h1><p class="sub">Aqui você acompanha somente os seus próprios vistos — ${visitPeriodLabel()}.</p>
