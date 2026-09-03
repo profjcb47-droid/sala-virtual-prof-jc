@@ -573,8 +573,14 @@ async function cloudPull(initial=false){
       cloudDirty=true;
       continue;
     }
-    /* O Supabase é a fonte oficial. Inclusive uma coleção vazia na nuvem
-       precisa apagar dados antigos que ficaram somente neste aparelho. */
+    /* Enquanto houver uma alteração local de alunos aguardando confirmação
+       da nuvem, nunca aplicar uma lista remota vazia/antiga por cima dela. */
+    if(k==="students"&&localStorage.getItem("jc_students_pending_sync")==="1"){
+      cloudDirty=true;
+      continue;
+    }
+    /* O Supabase é a fonte oficial depois que as alterações locais foram
+       confirmadas. */
     const rebuilt=rebuildCollection(k,grouped[k]);
     const before=JSON.stringify(db[k]);
     db[k]=rebuilt;
@@ -612,12 +618,18 @@ async function cloudPushDiff(force=false){
     await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
   }
   CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
+  localStorage.removeItem("jc_students_pending_sync");
   cloudDirty=false;cloudReady=true;cloudLastError="";cloudLastPush=Date.now();
  }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
  finally{cloudPushRunning=false;updateCloudIndicators();if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800)}
 }
 function scheduleCloudPush(){cloudDirty=true;updateCloudIndicators();clearTimeout(cloudPushTimer);cloudPushTimer=setTimeout(async()=>{await cloudPushDiff();if(!cloudDirty)await cloudPull(false)},120)}
-function persist(){Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));scheduleCloudPush()}
+function persist(){
+ const nextStudents=JSON.stringify(db.students||[]),prevStudents=localStorage.getItem("jc_students");
+ if(prevStudents!==nextStudents)localStorage.setItem("jc_students_pending_sync","1");
+ Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));
+ scheduleCloudPush();
+}
 async function syncNow(showToast=false){
  try{if(cloudDirty)await cloudPushDiff();await cloudPull(false);if(showToast&&!cloudLastError)toast('Dados sincronizados com o Supabase.')}catch(err){cloudLastError=err.message;if(showToast)toast('Não foi possível sincronizar agora.')}finally{updateCloudIndicators()}
 }
@@ -1185,7 +1197,7 @@ function classStudentsPage(){
   page.innerHTML=`
     <a class="back" href="#" onclick="go('classes');return false">← Gerenciar turmas</a>
     <h1 class="center">${e(S.cls)}</h1><p class="sub">${list.length} alunos cadastrados • em ordem de chamada</p>
-    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha com fotos ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel + fotos</button><button type="button" class="secondary" onclick="downloadStudentCredentials(S.cls)">📥 Baixar credenciais</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div></div>
+    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha com fotos ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel + fotos</button><button type="button" class="secondary" onclick="downloadStudentCredentials(S.cls)">📥 Baixar credenciais</button><button type="button" class="primary" onclick="saveClassStudentsNow()">💾 Salvar relação</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div></div>
       <input id="classExcelInput" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none" onchange="importStudentsExcel(this.files[0]);this.value=''">
       <div class="importExcelHelp small muted"><b>Planilha completa:</b> o sistema reconhece Nº, Nome, Turma/Série e fotos embutidas no Excel. Também entende o padrão <b>9ºB - 30. Nome do aluno</b>. Se a planilha tiver várias turmas, todas podem ser importadas de uma só vez.</div>
       <div id="classImportStatus" class="importProgress"></div>
@@ -1197,6 +1209,16 @@ function classStudentsPage(){
     ${S.classStudentsView==='photos'?photoHtml:listHtml}`;
   byId("classNewStudentBtn").onclick=()=>classOpenEditor();
   setTimeout(loadVisibleStudentPhotos,0);
+}
+
+async function saveClassStudentsNow(){
+  try{
+    localStorage.setItem("jc_students_pending_sync","1");
+    persist();
+    await cloudPushDiff(true);
+    if(cloudDirty||cloudLastError)return toast("A relação ficou salva neste aparelho, mas ainda não foi possível confirmar na nuvem.");
+    toast(`Relação de ${S.cls} salva com sucesso.`);
+  }catch(err){console.error(err);toast("A relação foi mantida neste aparelho. Tente sincronizar novamente quando houver internet.");}
 }
 
 function renameCurrentClass(){
@@ -1408,9 +1430,14 @@ async function importStudentsExcel(file){
      if(x.photo){try{await assignStudentPhoto(existing,x.photo);photosSaved++}catch(err){photoErrors++;console.warn('Falha ao importar foto',x.nome,err)}}
    }
    if(replace){const clsSet=new Set(classes);db.students=db.students.filter(s=>!clsSet.has(s.turma)||incomingKeys.has(`${s.turma}|${Number(s.chamada)}`))}
-   refreshClassesRef();persist();await syncNow(false);if(classes.includes(S.cls)===false&&classes.length)S.cls=classes[0];
-   setClassImportStatus(`Concluído: ${added} cadastrado(s), ${updated} atualizado(s), ${photosSaved} foto(s) salva(s)${photoErrors?` e ${photoErrors} foto(s) com erro`:''}.`);
-   toast(`Planilha importada: ${students.length} alunos • ${photosSaved} fotos.`);classStudentsPage();
+   refreshClassesRef();
+   localStorage.setItem("jc_students_pending_sync","1");
+   persist();
+   await cloudPushDiff(true);
+   if(classes.includes(S.cls)===false&&classes.length)S.cls=classes[0];
+   const cloudOk=!cloudDirty&&!cloudLastError;
+   setClassImportStatus(`Concluído: ${added} cadastrado(s), ${updated} atualizado(s), ${photosSaved} foto(s) salva(s)${photoErrors?` e ${photoErrors} foto(s) com erro`:''}.${cloudOk?' Relação salva.':' Relação salva neste aparelho; sincronização com a nuvem pendente.'}`);
+   toast(`Planilha importada: ${students.length} alunos • ${photosSaved} fotos${cloudOk?' • salva':' • salva localmente'}.`);classStudentsPage();
    setTimeout(()=>setClassImportStatus(`Última importação: ${students.length} alunos • ${photosSaved} fotos${photoErrors?` • ${photoErrors} erros de foto`:''}.`),0);
  }catch(err){console.error(err);setClassImportStatus('Não foi possível concluir a importação.');toast('Não foi possível ler a planilha. Use um arquivo Excel .xlsx, .xls ou .csv válido.')}
 }
