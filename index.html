@@ -549,6 +549,15 @@ async function cloudPull(initial=false){
  try{
   const r=await cloudRequest('/rest/v1/jc_records?select=collection,item_key,data,updated_at&order=collection.asc,item_key.asc');
   const rows=await r.json();
+  /* Se o usuário alterou algum dado enquanto esta leitura da nuvem estava
+     em andamento, não podemos aplicar uma resposta antiga por cima da
+     alteração local. Primeiro enviamos o que acabou de ser salvo e somente
+     depois fazemos uma nova leitura. Isso evita, por exemplo, uma turma
+     recém-criada desaparecer ao sair e voltar para a página. */
+  if(cloudDirty){
+    scheduleCloudPush();
+    return;
+  }
   const grouped={};CLOUD_COLLECTIONS.forEach(k=>grouped[k]=[]);
   rows.forEach(row=>{if(grouped[row.collection])grouped[row.collection].push(row)});
   if(initial&&rows.length===0){
@@ -1111,7 +1120,12 @@ function createClass(){
   if(!nome)return;
   refreshClassesRef();
   if(CLASSES.some(c=>c.toLocaleLowerCase("pt-BR")===nome.toLocaleLowerCase("pt-BR")))return toast("Essa turma já existe.");
-  db.classes.push(nome);refreshClassesRef();S.cls=nome;persist();toast("Turma criada.");classesPage();
+  db.classes.push(nome);
+  refreshClassesRef();
+  S.cls=nome;
+  persist();
+  classesPage();
+  toast("Turma criada e salva.");
 }
 function classesPage(){
   refreshClassesRef();
