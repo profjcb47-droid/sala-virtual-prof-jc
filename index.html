@@ -526,6 +526,7 @@ const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages"
 const CLOUD_STORAGE_BUCKET="jc-files";
 const CLOUD_SYNC_VERSION="3.0";
 let cloudEnabled=true,cloudReady=false,cloudDirty=false,cloudPushTimer=null,cloudPushRunning=false,cloudPullRunning=false,cloudLastError="",cloudLastPull=0,cloudLastPush=0;
+let studentExcelImportInProgress=false;
 const cloudShadow={};
 
 function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
@@ -559,6 +560,7 @@ async function cloudRequest(path,options={}){
  return r
 }
 async function cloudPull(initial=false){
+ if(studentExcelImportInProgress&&!initial)return;
  if(!cloudEnabled||cloudPullRunning||cloudPushRunning)return;
  if(cloudDirty){await cloudPushDiff();if(cloudDirty)return}
  cloudPullRunning=true;
@@ -647,6 +649,7 @@ function persist(){
  scheduleCloudPush();
 }
 async function syncNow(showToast=false){
+ if(studentExcelImportInProgress)return;
  try{if(cloudDirty)await cloudPushDiff();await cloudPull(false);if(showToast&&!cloudLastError)toast('Dados sincronizados com o Supabase.')}catch(err){cloudLastError=err.message;if(showToast)toast('Não foi possível sincronizar agora.')}finally{updateCloudIndicators()}
 }
 function cloudStatusText(){if(cloudLastError)return '☁ Sem sincronização';if(cloudDirty||cloudPushRunning)return '☁ Enviando...';if(cloudReady)return '☁ Sincronizado';return '☁ Conectando...'}
@@ -1455,9 +1458,10 @@ async function extractEmbeddedExcelPhotos(arrayBuffer){
      const blip=[...anc.getElementsByTagName('*')].find(n=>n.localName==='blip');if(!blip)continue;
      const embed=blip.getAttribute('r:embed')||blip.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','embed'),imgTarget=drMap[embed];if(!imgTarget)continue;
      const imgPath=resolveZipPath(drawingPath,imgTarget),imgFile=zip.file(imgPath);if(!imgFile)continue;
-     if(excelCol<2||excelCol>6)continue;
+     // A planilha do professor usa a coluna B como coluna FOTO. Ignorar imagens decorativas/soltas.
+     if(excelCol!==2)continue;
      const ext=(imgPath.split('.').pop()||'jpg').toLowerCase(),mime=ext==='png'?'image/png':ext==='webp'?'image/webp':'image/jpeg',blob=await imgFile.async('blob');
-     rowMap.set(excelRow,new File([blob],`foto.${ext}`,{type:mime}));
+     if(!rowMap.has(excelRow))rowMap.set(excelRow,new File([blob],`foto.${ext}`,{type:mime}));
    }
    if(rowMap.size)result.set(name,rowMap);
  }
@@ -1466,6 +1470,12 @@ async function extractEmbeddedExcelPhotos(arrayBuffer){
 function setClassImportStatus(msg){const el=byId('classImportStatus');if(el)el.textContent=msg||''}
 async function importStudentsExcel(file){
  if(!file)return;if(!window.XLSX)return toast("O leitor de Excel ainda está carregando. Aguarde alguns segundos e tente novamente.");
+ if(studentExcelImportInProgress)return toast("Já existe uma importação em andamento. Aguarde concluir.");
+ studentExcelImportInProgress=true;
+ localStorage.setItem("jc_students_pending_sync","1");
+ cloudDirty=true;
+ clearTimeout(cloudPushTimer);cloudPushTimer=null;
+ const importClassBefore=S.cls;
  try{
    setClassImportStatus('Lendo a planilha...');const data=await file.arrayBuffer(),workbook=XLSX.read(data,{type:'array'}),isXlsx=/\.xlsx$/i.test(file.name||''),photos=isXlsx?await extractEmbeddedExcelPhotos(data):new Map();
    const found=[];for(const sheetName of workbook.SheetNames){const sheet=workbook.Sheets[sheetName];for(const st of parseStudentSheetRows(sheet,sheetName)){const photo=photos.get(sheetName)?.get(st.rowNumber)||null;found.push({...st,photo})}}
@@ -1491,12 +1501,18 @@ async function importStudentsExcel(file){
    localStorage.setItem("jc_students_pending_sync","1");
    persist();
    await cloudPushDiff(true);
-   if(classes.includes(S.cls)===false&&classes.length)S.cls=classes[0];
+   if(classes.includes(importClassBefore))S.cls=importClassBefore;
+   else if(classes.includes(S.cls)===false&&classes.length)S.cls=classes[0];
    const cloudOk=!cloudDirty&&!cloudLastError;
-   setClassImportStatus(`Concluído: ${added} cadastrado(s), ${updated} atualizado(s), ${photosSaved} foto(s) salva(s)${photoErrors?` e ${photoErrors} foto(s) com erro`:''}.${cloudOk?' Relação salva.':' Relação salva neste aparelho; sincronização com a nuvem pendente.'}`);
-   toast(`Planilha importada: ${students.length} alunos • ${photosSaved} fotos${cloudOk?' • salva':' • salva localmente'}.`);classStudentsPage();
-   setTimeout(()=>setClassImportStatus(`Última importação: ${students.length} alunos • ${photosSaved} fotos${photoErrors?` • ${photoErrors} erros de foto`:''}.`),0);
+   const withoutPhoto=Math.max(0,students.length-photoCount);
+   setClassImportStatus(`Concluído: ${students.length} aluno(s) • ${photosSaved} foto(s) vinculada(s)${withoutPhoto?` • ${withoutPhoto} sem foto na planilha`:''}${photoErrors?` • ${photoErrors} erro(s) ao salvar foto`:''}.${cloudOk?' Relação salva.':' Relação salva neste aparelho; sincronização com a nuvem pendente.'}`);
+   toast(`Planilha importada: ${students.length} alunos • ${photosSaved} fotos vinculadas${withoutPhoto?` • ${withoutPhoto} sem foto`:''}.`);classStudentsPage();
+   setTimeout(()=>setClassImportStatus(`Última importação: ${students.length} alunos • ${photosSaved} fotos vinculadas${withoutPhoto?` • ${withoutPhoto} sem foto na planilha`:''}${photoErrors?` • ${photoErrors} erros de foto`:''}.`),0);
  }catch(err){console.error(err);setClassImportStatus('Não foi possível concluir a importação.');toast('Não foi possível ler a planilha. Use um arquivo Excel .xlsx, .xls ou .csv válido.')}
+ finally{
+   studentExcelImportInProgress=false;
+   if(cloudDirty) scheduleCloudPush();
+ }
 }
 function studentsPage(){
   const all = Array.isArray(db.students) ? db.students : [];
