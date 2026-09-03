@@ -334,6 +334,14 @@ body:has(.loginPage) .sidebarOverlay{
 .visitZero{background:#f1f4f7;border-color:#d4dde5;color:#6a7580}
 @media(max-width:600px){.visitRosterTools{align-items:stretch}.visitRosterTools>*{width:100%}}
 
+
+.visitRosterToggle{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid #d8e3ed;background:#f8fbfe;border-radius:12px;padding:12px 14px;font-weight:900;color:#0b5fa8;cursor:pointer}
+.visitRosterToggle:hover{background:#f1f7fc}
+.visitRosterContent{margin-top:12px}
+.visitRosterContent.hidden{display:none!important}
+.visitRosterArrow{font-size:15px;transition:transform .18s ease}
+.visitRosterToggle.open .visitRosterArrow{transform:rotate(90deg)}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
@@ -881,6 +889,16 @@ function downloadVisitExcel(){
  toast("Planilha baixada. Abra o arquivo no Excel.")
 }
 
+
+function toggleVisitRoster(){
+ const content=byId("visitRosterContent"),btn=byId("visitRosterToggle");
+ if(!content||!btn)return;
+ const opening=content.classList.contains("hidden");
+ content.classList.toggle("hidden",!opening);
+ btn.classList.toggle("open",opening);
+ btn.setAttribute("aria-expanded",opening?"true":"false");
+}
+
 function visitsTeacher(){
  stopVisitCamera();
  const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today),classes=[...(db.classes||CLASSES||[])];
@@ -906,13 +924,16 @@ function visitsTeacher(){
  </div>
  <section class="panel" style="margin-top:14px"><h3>Últimos vistos de hoje</h3><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></section>
  <section class="panel" style="margin-top:14px">
-  <h3 id="visitRosterTitle">Relação de Vistos — ${e(S.cls)}</h3>
-  <p class="small muted">Todos os alunos da turma aparecem na lista, inclusive quem ainda está com 0 vistos no bimestre atual.</p>
-  <div class="visitRosterTools">
-   <div class="grow"><label>Turma</label><select id="visitRosterClass" onchange="updateVisitRoster()">${classes.map(c=>`<option value="${e(c)}" ${c===S.cls?"selected":""}>${e(c)}</option>`).join("")}</select></div>
-   <button class="primary" onclick="downloadVisitExcel()">📊 Baixar Excel</button>
+  <button id="visitRosterToggle" class="visitRosterToggle" aria-expanded="false" onclick="toggleVisitRoster()"><span>📋 Relação de Vistos</span><span class="visitRosterArrow">▶</span></button>
+  <div id="visitRosterContent" class="visitRosterContent hidden">
+   <h3 id="visitRosterTitle" style="margin-top:0">Relação de Vistos — ${e(S.cls)}</h3>
+   <p class="small muted">Todos os alunos da turma aparecem na lista, inclusive quem ainda está com 0 vistos no bimestre atual.</p>
+   <div class="visitRosterTools">
+    <div class="grow"><label>Turma</label><select id="visitRosterClass" onchange="updateVisitRoster()">${classes.map(c=>`<option value="${e(c)}" ${c===S.cls?"selected":""}>${e(c)}</option>`).join("")}</select></div>
+    <button class="primary" onclick="downloadVisitExcel()">📊 Baixar Excel</button>
+   </div>
+   <div class="tableWrap"><table class="visitTable"><thead><tr><th>Nº</th><th>Aluno</th><th>Turma</th><th>Vistos</th></tr></thead><tbody id="visitRosterBody">${visitRosterTableHtml(S.cls)}</tbody></table></div>
   </div>
-  <div class="tableWrap"><table class="visitTable"><thead><tr><th>Nº</th><th>Aluno</th><th>Turma</th><th>Vistos</th></tr></thead><tbody id="visitRosterBody">${visitRosterTableHtml(S.cls)}</tbody></table></div>
  </section>
  <section class="panel" style="margin-top:14px"><h3>📚 Histórico arquivado</h3><p class="small muted">Ao encerrar um bimestre, os vistos saem da contagem atual, mas ficam guardados aqui como histórico.</p>${visitArchiveSummaryHtml()}</section>
  <section class="visitDangerZone"><h3>⚙️ Fechamento de período</h3><p class="small muted">Use estes comandos somente no fechamento do bimestre ou no início de um novo ano letivo. Ambos exigem confirmação.</p><div class="visitDangerActions"><button class="secondary" onclick="endVisitBimester()">📘 Encerrar bimestre e zerar vistos</button><button class="danger" onclick="startNewVisitYear()">🗓️ Iniciar novo ano e começar do zero</button></div></section>`;
