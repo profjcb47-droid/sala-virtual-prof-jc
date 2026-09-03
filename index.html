@@ -657,14 +657,12 @@ function findStudentFromQr(raw){
  matches=students.filter(st=>normalizeVisitText(st.nome)===tail);
  return matches.length===1?matches[0]:null
 }
-let visitResultTimer=null,visitCameraStream=null,visitQrDetector=null,visitCameraBusy=false;
+let visitCameraStream=null,visitQrDetector=null,visitCameraBusy=false;
 function setVisitResult(type,title,detail=""){
  const box=byId("visitResult");if(!box)return;
  const icons={ok:"✅",warn:"⚠️",err:"❌",idle:"⭐"};
  box.className=`visitResult ${type==="idle"?"":type}`.trim();
  box.innerHTML=`<div class="visitResultIcon">${icons[type]||"⭐"}</div><div><strong>${e(title)}</strong>${detail?`<small>${e(detail)}</small>`:""}</div>`;
- clearTimeout(visitResultTimer);
- if(type!=="idle")visitResultTimer=setTimeout(()=>{const b=byId("visitResult");if(b){b.className="visitResult";b.innerHTML='<div class="visitResultIcon">⭐</div><div><strong>Aguardando próxima leitura</strong><small>Cole o QR ou use Enter para registrar.</small></div>'}},2600)
 }
 function registerVisitRaw(raw,quiet=false){
  raw=String(raw||"").trim();if(!raw){if(!quiet)setVisitResult("warn","Nenhum QR informado.");return {ok:false,reason:"empty"}}
@@ -826,7 +824,7 @@ function visitsTeacher(){
    <label style="margin-top:10px">Conteúdo do QR Code</label>
    <input id="visitQuickInput" class="visitQuickInput" placeholder="Aguardando leitura do QR..." autocomplete="off" onkeydown="visitQuickKey(event)" onpaste="visitQuickPaste()">
    <div class="actions" style="margin-top:9px"><button class="primary" onclick="pasteVisitFromClipboard()">📋 Colar e registrar</button><button class="secondary" onclick="startVisitCamera()">📷 Abrir câmera</button></div>
-   <div id="visitCameraWrap" class="cameraQrWrap hidden"><video id="visitCameraVideo" playsinline muted></video><div style="padding:10px;background:#fff;display:flex;gap:8px;flex-wrap:wrap"><button id="visitReadBtn" class="primary" onclick="readVisitQrOnce()">📷 Fazer leitura</button><button class="secondary" onclick="stopVisitCamera()">Fechar câmera</button></div><div class="small muted" style="background:#fff;padding:0 10px 10px">Cada toque em <b>Fazer leitura</b> lê somente um QR. Encontrando o aluno, o visto é salvo automaticamente. Depois, aponte para o próximo aluno e toque novamente.</div></div>
+   <div id="visitCameraWrap" class="cameraQrWrap hidden"><video id="visitCameraVideo" playsinline muted></video><div style="padding:10px;background:#fff;display:flex;gap:8px;flex-wrap:wrap"><button id="visitReadBtn" class="primary" onclick="readVisitQrOnce()">📷 Fazer leitura</button><button class="secondary" onclick="stopVisitCamera()">Fechar câmera</button></div><div class="small muted" style="background:#fff;padding:0 10px 10px">Cada toque em <b>Fazer leitura</b> lê somente um QR. Encontrando o aluno, o visto é salvo automaticamente. A confirmação fica na tela até a próxima leitura.</div></div>
    <div id="visitResult" class="visitResult"><div class="visitResultIcon">⭐</div><div><strong>Aguardando próxima leitura</strong><small>O campo fica pronto para o próximo aluno.</small></div></div>
   </section>
   <section class="visitScanBox"><h3>⚡ Colar várias leituras de uma vez</h3><p class="small muted">Se o seu scanner permite copiar o histórico, cole aqui com <b>uma leitura por linha</b>. O programa separa os alunos e registra todos de uma vez.</p>
