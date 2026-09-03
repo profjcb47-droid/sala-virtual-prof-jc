@@ -421,7 +421,7 @@ function cloudEntries(collection){
 }
 function serializeMap(m){const out={};m.forEach((v,k)=>out[k]=JSON.stringify(v));return out}
 function rebuildCollection(collection,rows){
- if(collection==="schedule"||collection==="accesses"||collection==="activityViews"||collection==="contentViews"||collection==="libraryViews"||collection==="libraryLinks"||collection==="announcementReads"){const o={};rows.forEach(r=>o[r.item_key]=r.data);return o}
+ if(collection==="schedule"||collection==="accesses"||collection==="activityViews"||collection==="contentViews"||collection==="libraryViews"||collection==="libraryLinks"||collection==="announcementReads"||collection==="visitPeriod"){const o={};rows.forEach(r=>o[r.item_key]=r.data);return o}
  const arr=rows.map(r=>r.data);
  if(collection==="classes")return arr.map(String).filter(Boolean);
  if(collection==="students")arr.sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
@@ -619,7 +619,7 @@ function topbar(){const unread=S.user?(S.user.role==='teacher'?teacherUnreadCoun
 function openDrawer(){const teacher=S.user.role==="teacher";const links=teacher?[["teacher","Início"],["visitsTeacher","Leitor de Vistos"],["classes","Gerenciar turmas"],["schedule","Horário escolar"],["submitted","Ver atividades"],["virtualLibraryTeacher","Biblioteca Virtual"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["announcementsTeacher","Publicar mensagem"],["access","Quando o aluno entrou no app"]]:[["student","Início"],["studentVisits","Meus Vistos"],["studentNotifications","Notificações"],["studentLibrary","Biblioteca Virtual"],["studentPhoto","Minha foto"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${links.map(x=>x[0]==='classes'?`<a href="#turmas" onclick="openClassesFromHash();closeDrawer();return false">${x[1]}</a>`:`<a href="#" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="#" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
 function closeDrawer(){drawer.classList.remove("open")}drawer.addEventListener("click",ev=>{if(ev.target===drawer)closeDrawer()});
 function render(){cleanupOldMessages();if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const routes={teacher,visitsTeacher,studentVisits,classes:classesPage,classStudents:classStudentsPage,students:studentsPage,schedule,activities,createActivity,activityList,activityResults,gradesOverview,content,announcementsTeacher,studentAnnouncement,virtualLibraryTeacher,studentLibrary,development,messages,teacherTalk,submitted,access,student,studentNotifications,studentPhoto,subjects,subjectPage,studentActs,studentActivity,studentGrades,send,studentTalk};const f=routes[S.page]||teacher;f()}
-function preserveActiveInteraction(){return S.page==='studentActivity'||S.page==='createActivity'}
+function preserveActiveInteraction(){return S.page==='studentActivity'||S.page==='createActivity'||S.page==='visitsTeacher'}
 function routeHash(){
   if(location.hash==="#turmas" && S.user && S.user.role==="teacher"){
     S.page="classes";
@@ -758,7 +758,7 @@ function stopVisitCamera(){
 }
 
 function currentVisitPeriod(){
- if(!db.visitPeriod||typeof db.visitPeriod!=="object")db.visitPeriod={year:new Date().getFullYear(),bimester:1};
+ if(!db.visitPeriod||typeof db.visitPeriod!=="object"||Array.isArray(db.visitPeriod))db.visitPeriod={year:new Date().getFullYear(),bimester:1};
  let year=parseInt(db.visitPeriod.year,10);let bim=parseInt(db.visitPeriod.bimester,10);
  if(!Number.isFinite(year))year=new Date().getFullYear();if(!Number.isFinite(bim)||bim<1||bim>4)bim=1;
  db.visitPeriod={year,bimester:bim};return db.visitPeriod
@@ -813,12 +813,11 @@ function visitArchiveSummaryHtml(){
 function setVisitBimester(value){
  const n=parseInt(value,10);if(![1,2,3,4].includes(n))return;
  const p=currentVisitPeriod();
- if(n===p.bimester)return;
- if((db.visits||[]).length){
-  const ok=confirm(`Existem ${(db.visits||[]).length} visto(s) no ${p.bimester}º Bimestre.\n\nTrocar diretamente para o ${n}º Bimestre não apaga esses vistos. Para zerar e arquivar corretamente, use “Encerrar bimestre”.\n\nDeseja apenas alterar o bimestre exibido?`);
-  if(!ok){visitsTeacher();return}
- }
- db.visitPeriod={year:p.year,bimester:n};persist();visitsTeacher()
+ db.visitPeriod={year:p.year,bimester:n};
+ localStorage.setItem("jc_visitPeriod",JSON.stringify(db.visitPeriod));
+ scheduleCloudPush();
+ const tag=byId("visitPeriodTag");if(tag)tag.textContent=`📘 ${n}º Bimestre`;
+ const sel=byId("visitBimesterSelect");if(sel&&String(sel.value)!==String(n))sel.value=String(n);
 }
 
 function visitsTeacher(){
@@ -827,7 +826,7 @@ function visitsTeacher(){
  const classCards=classes.map(c=>`<div class="visitClassCard"><span>${e(c)}</span><b data-visit-class="${e(c)}">${todayRows.filter(v=>v.turma===c).length}</b><span>visto(s) hoje</span></div>`).join("");
  page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a>
  <h1 class="center">⭐ Leitor de Vistos</h1><p class="sub">Leitura pelo celular com um toque por aluno. Cada aluno recebe no máximo 1 visto por dia.</p>
- <div class="visitPeriodBar"><div><span class="visitPeriodTag">📘 ${visitPeriodLabel()}</span><div class="small muted" style="margin-top:5px">A contagem exibida aos alunos pertence somente ao período atual.</div></div><div><label class="small">Bimestre atual</label><select onchange="setVisitBimester(this.value)" style="min-width:145px">${[1,2,3,4].map(n=>`<option value="${n}" ${currentVisitPeriod().bimester===n?"selected":""}>${n}º Bimestre</option>`).join("")}</select></div></div>
+ <div class="visitPeriodBar"><div><span id="visitPeriodTag" class="visitPeriodTag">📘 ${visitPeriodLabel()}</span><div class="small muted" style="margin-top:5px">A contagem exibida aos alunos pertence somente ao período atual.</div></div><div><label class="small">Bimestre atual</label><select id="visitBimesterSelect" onchange="setVisitBimester(this.value)" style="min-width:145px">${[1,2,3,4].map(n=>`<option value="${n}" ${currentVisitPeriod().bimester===n?"selected":""}>${n}º Bimestre</option>`).join("")}</select></div></div>
  <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
  <div class="visitReaderGrid">
   <section class="visitScanBox"><h3>📱 Leitura rápida</h3><p class="small muted">Você pode continuar usando o app Scanner de Código QR e colar a leitura aqui. Pela câmera do programa, abra a câmera e toque em <b>Fazer leitura</b> para cada aluno.</p>
