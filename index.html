@@ -342,6 +342,29 @@ body:has(.loginPage) .sidebarOverlay{
 .visitRosterArrow{font-size:15px;transition:transform .18s ease}
 .visitRosterToggle.open .visitRosterArrow{transform:rotate(90deg)}
 
+
+.visitRosterMobileQuick{display:none}
+@media(max-width:700px){
+  .visitRosterMobileQuick{
+    display:flex!important;
+    width:100%;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    margin:10px 0 12px;
+    padding:13px 14px;
+    border-radius:12px;
+    border:1px solid #c9dceb;
+    background:#f5faff;
+    color:#0b5fa8;
+    font-weight:950;
+    font-size:15px;
+    cursor:pointer;
+  }
+  #visitRosterToggle{display:flex!important;visibility:visible!important;opacity:1!important}
+  #visitRosterContent{width:100%}
+}
+
 </style>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4.3.1/dist/tus.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.1/dist/html2pdf.bundle.min.js"></script>
@@ -645,285 +668,10 @@ window.addEventListener("hashchange",routeHash);
 
 function renderLogin(){
 forceCloseNavigation();
-root.innerHTML=`<section class="loginPage"><div class="loginBox"><img class="loginLogo" src="${LOGO}" alt="CEPI Jardim Tiradentes"><h1 class="loginTitle">Sala Virtual Prof. JC</h1><p class="muted">Bem-vindo à nossa sala virtual, Prof. JC!</p><div class="role"><button id="rStu" class="active">Aluno</button><button id="rTea">Professor</button></div><label>Usuário</label><input id="loginU" autocomplete="username"><label>Senha</label><input id="loginP" type="password" autocomplete="current-password"><button class="primary" style="width:100%;margin-top:14px" id="enter">Entrar</button><div class="links"><a href="#" id="help">Fale com o professor</a><a href="#" id="install">Instalar app no celular</a></div></div></section>`;rStu.onclick=()=>{S.role="student";rStu.classList.add("active");rTea.classList.remove("active")};rTea.onclick=()=>{S.role="teacher";rTea.classList.add("active");rStu.classList.remove("active")};enter.onclick=login;loginP.addEventListener("keydown",x=>{if(x.key==="Enter")login()});help.onclick=x=>{x.preventDefault();toast("Procure o Prof. JC para recuperar seu acesso.")};install.onclick=x=>{x.preventDefault();toast("No celular, use 'Adicionar à tela inicial' no navegador.")}}
-function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u!==T.login||p!==T.senha)return toast("Usuário ou senha inválidos.");S.user=T;S.page="teacher"}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}saveSessionState();render()}
-
-function visitDateKey(ts=Date.now()){const d=new Date(ts),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${day}`}
-function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}
-function normalizeVisitText(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª]/g,"").replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ")}
-function visitsForStudent(login){return (Array.isArray(db.visits)?db.visits:[]).filter(v=>v.login===login).sort((a,b)=>Number(b.createdAt||b.id||0)-Number(a.createdAt||a.id||0))}
-function visitTotal(login){return visitsForStudent(login).length}
-function hasVisitToday(login){const today=visitDateKey();return (db.visits||[]).some(v=>v.login===login&&v.date===today)}
-function findStudentFromQr(raw){
- const text=normalizeVisitText(raw);if(!text)return null;
- const students=[...(db.students||[])].sort((a,b)=>normalizeVisitText(b.nome).length-normalizeVisitText(a.nome).length);
- let matches=students.filter(st=>{const name=normalizeVisitText(st.nome);return name&&(` ${text} `).includes(` ${name} `)});
- if(matches.length===1)return matches[0];
- if(matches.length>1){
-   const same=matches.filter(st=>st.turma===S.cls);if(same.length===1)return same[0];
- }
- const tokens=text.split(" ");
- const possibleCall=tokens.find(t=>/^\d{1,2}$/.test(t));
- if(possibleCall){
-   const sameClass=students.filter(st=>st.turma===S.cls&&String(Number(st.chamada))===String(Number(possibleCall)));
-   if(sameClass.length===1)return sameClass[0];
- }
- const tail=text.replace(/^(9\s*[a-z]?\s*)/,"").replace(/^\d{1,2}\s*/,"").trim();
- matches=students.filter(st=>normalizeVisitText(st.nome)===tail);
- return matches.length===1?matches[0]:null
-}
-let visitCameraStream=null,visitQrDetector=null,visitCameraBusy=false;
-function setVisitResult(type,title,detail=""){
- const box=byId("visitResult");if(!box)return;
- const icons={ok:"✅",warn:"⚠️",err:"❌",idle:"⭐"};
- box.className=`visitResult ${type==="idle"?"":type}`.trim();
- box.innerHTML=`<div class="visitResultIcon">${icons[type]||"⭐"}</div><div><strong>${e(title)}</strong>${detail?`<small>${e(detail)}</small>`:""}</div>`;
-}
-function registerVisitRaw(raw,quiet=false){
- raw=String(raw||"").trim();if(!raw){if(!quiet)setVisitResult("warn","Nenhum QR informado.");return {ok:false,reason:"empty"}}
- const st=findStudentFromQr(raw);
- if(!st){if(!quiet)setVisitResult("err","Aluno não encontrado","Confira se o QR contém o nome completo do aluno.");return {ok:false,reason:"notfound"}}
- const today=visitDateKey();
- if((db.visits||[]).some(v=>v.login===st.login&&v.date===today)){
-   if(!quiet)setVisitResult("warn",`${st.nome} já recebeu o visto de hoje.`,`${st.turma} • total: ${visitTotal(st.login)} vistos`);
-   return {ok:false,reason:"duplicate",student:st}
- }
- if(!Array.isArray(db.visits))db.visits=[];
- const now=Date.now();
- db.visits.push({id:now+Math.floor(Math.random()*1000),login:st.login,nome:st.nome,turma:st.turma,date:today,createdAt:now,raw:raw.slice(0,500)});
- persist();
- if(!quiet)setVisitResult("ok",`${st.nome} — visto registrado!`,`${st.turma} • agora tem ${visitTotal(st.login)} visto(s)`);
- return {ok:true,student:st}
-}
-function registerVisitInput(){
- const input=byId("visitQuickInput");if(!input)return;
- const raw=input.value.trim();if(!raw)return;
- registerVisitRaw(raw);input.value="";input.focus();refreshVisitCounters()
-}
-function visitQuickKey(ev){if(ev.key==="Enter"){ev.preventDefault();registerVisitInput()}}
-function visitQuickPaste(){setTimeout(()=>registerVisitInput(),30)}
-async function pasteVisitFromClipboard(){
- try{const text=await navigator.clipboard.readText();if(!text)return setVisitResult("warn","A área de transferência está vazia.");const input=byId("visitQuickInput");if(input){input.value=text;registerVisitInput()}}catch{setVisitResult("warn","Não consegui acessar a área de transferência.","Toque no campo e use Colar.")}
-}
-function processVisitBatch(){
- const ta=byId("visitBatch");if(!ta)return;
- const lines=ta.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
- if(!lines.length)return setVisitResult("warn","Cole uma ou mais leituras, uma por linha.");
- let added=0,duplicates=0,notfound=0;
- for(const line of lines){const r=registerVisitRaw(line,true);if(r.ok)added++;else if(r.reason==="duplicate")duplicates++;else notfound++}
- ta.value="";persist();refreshVisitCounters();
- setVisitResult(added?"ok":"warn",`${added} visto(s) registrado(s).`,`${duplicates} repetido(s) hoje • ${notfound} não encontrado(s)`);
-}
-function deleteVisit(id){
- const v=(db.visits||[]).find(x=>String(x.id)===String(id));if(!v)return;
- if(!confirm(`Excluir o visto de ${v.nome} em ${visitDateLabel(v.date)}?`))return;
- db.visits=db.visits.filter(x=>String(x.id)!==String(id));persist();visitsTeacher()
-}
-function refreshVisitCounters(){
- if(S.page!=="visitsTeacher")return;
- const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today);
- const el=byId("visitTodayCount");if(el)el.textContent=todayRows.length;
- const total=byId("visitAllCount");if(total)total.textContent=(db.visits||[]).length;
- const recent=byId("visitRecentBody");if(recent)recent.innerHTML=visitRecentRows(todayRows);
- document.querySelectorAll("[data-visit-class]").forEach(el=>{el.textContent=todayRows.filter(v=>v.turma===el.dataset.visitClass).length})
-}
-function visitRecentRows(rows){
- return [...rows].sort((a,b)=>Number(b.createdAt)-Number(a.createdAt)).slice(0,20).map(v=>`<tr><td>${new Date(v.createdAt).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}</td><td><b>${e(v.nome)}</b></td><td>${e(v.turma)}</td><td>${visitTotal(v.login)}</td><td><button class="danger miniAction" onclick="deleteVisit('${v.id}')">Excluir</button></td></tr>`).join("")||'<tr><td colspan="5" class="muted">Nenhum visto registrado hoje.</td></tr>'
-}
-async function startVisitCamera(){
- if(!navigator.mediaDevices?.getUserMedia)return setVisitResult("warn","Câmera não disponível neste navegador.");
- if(!("BarcodeDetector" in window))return setVisitResult("warn","Leitura direta de QR não é suportada neste navegador.","Use o seu aplicativo Scanner de Código QR e cole a leitura no campo acima.");
- try{
-  stopVisitCamera();
-  visitCameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});
-  const wrap=byId("visitCameraWrap"),video=byId("visitCameraVideo");if(!wrap||!video)return;
-  wrap.classList.remove("hidden");video.srcObject=visitCameraStream;await video.play();
-  visitQrDetector=new BarcodeDetector({formats:["qr_code"]});
-  setVisitResult("idle","Câmera pronta","Aponte para o QR e toque em Fazer leitura.");
- }catch(err){setVisitResult("err","Não foi possível abrir a câmera.","Verifique a permissão do navegador.")}
-}
-async function readVisitQrOnce(){
- if(visitCameraBusy)return;
- const video=byId("visitCameraVideo");
- if(!visitCameraStream||!video||!visitQrDetector)return setVisitResult("warn","Abra a câmera primeiro.");
- visitCameraBusy=true;
- const btn=byId("visitReadBtn");
- if(btn){btn.disabled=true;btn.textContent="🔎 Lendo..."}
- try{
-  const codes=await visitQrDetector.detect(video);
-  const raw=codes?.[0]?.rawValue||"";
-  if(!raw){
-   setVisitResult("warn","QR Code não encontrado","Aponte a câmera para o QR e toque novamente em Fazer leitura.");
-  }else{
-   registerVisitRaw(raw);
-   refreshVisitCounters();
-  }
- }catch(err){
-  setVisitResult("err","Não consegui ler o QR Code.","Tente aproximar ou afastar um pouco o celular.");
- }finally{
-  visitCameraBusy=false;
-  if(btn){btn.disabled=false;btn.textContent="📷 Fazer leitura"}
- }
-}
-function stopVisitCamera(){
- visitCameraBusy=false;
- visitQrDetector=null;
- if(visitCameraStream){visitCameraStream.getTracks().forEach(t=>t.stop());visitCameraStream=null}
- const w=byId("visitCameraWrap");if(w)w.classList.add("hidden")
-}
-
-function currentVisitPeriod(){
- if(!db.visitPeriod||typeof db.visitPeriod!=="object"||Array.isArray(db.visitPeriod))db.visitPeriod={year:new Date().getFullYear(),bimester:1};
- let year=parseInt(db.visitPeriod.year,10);let bim=parseInt(db.visitPeriod.bimester,10);
- if(!Number.isFinite(year))year=new Date().getFullYear();if(!Number.isFinite(bim)||bim<1||bim>4)bim=1;
- db.visitPeriod={year,bimester:bim};return db.visitPeriod
-}
-function visitPeriodLabel(){const p=currentVisitPeriod();return `${p.bimester}º Bimestre`}
-function archiveCurrentVisits(kind,label){
- const p=currentVisitPeriod(),rows=Array.isArray(db.visits)?db.visits:[];
- if(!Array.isArray(db.visitArchives))db.visitArchives=[];
- const snapshot=rows.map(v=>({...v}));
- db.visitArchives.push({
-   id:Date.now()+Math.floor(Math.random()*1000),
-   kind, label,
-   year:p.year,bimester:p.bimester,
-   total:snapshot.length,
-   endedAt:Date.now(),
-   visits:snapshot
- });
-}
-function endVisitBimester(){
- const p=currentVisitPeriod(),count=(db.visits||[]).length;
- const answer=prompt(`ENCERRAR ${p.bimester}º BIMESTRE DE ${p.year}\n\nExistem ${count} visto(s) no período atual.\nO histórico será arquivado e a contagem dos alunos voltará para 0.\n\nPara confirmar, digite: ENCERRAR`);
- if(String(answer||"").trim().toUpperCase()!=="ENCERRAR")return toast("Operação cancelada.");
- archiveCurrentVisits("bimester",`${p.bimester}º Bimestre de ${p.year}`);
- db.visits=[];
- if(p.bimester<4)db.visitPeriod={year:p.year,bimester:p.bimester+1};
- else db.visitPeriod={year:p.year,bimester:4};
- persist();
- toast(`Bimestre encerrado. A nova contagem começou em 0.`);
- visitsTeacher()
-}
-function startNewVisitYear(){
- const p=currentVisitPeriod(),suggested=p.year+1;
- const yearRaw=prompt(`INICIAR NOVO ANO LETIVO\n\nA contagem atual será zerada e o histórico ficará arquivado.\nDigite o ano letivo que deseja iniciar:`,String(suggested));
- if(yearRaw===null)return;
- const newYear=parseInt(String(yearRaw).trim(),10);
- if(!Number.isFinite(newYear)||newYear<2020||newYear>2100)return toast("Ano inválido.");
- const confirmText=prompt(`Você vai iniciar o ano letivo de ${newYear}.\nTodos os vistos ATUAIS voltarão para 0 e o novo período será 1º Bimestre.\n\nPara confirmar, digite: NOVO ANO`);
- if(String(confirmText||"").trim().toUpperCase()!=="NOVO ANO")return toast("Operação cancelada.");
- if((db.visits||[]).length)archiveCurrentVisits("yearClosing",`Fechamento ${p.year} — ${p.bimester}º Bimestre`);
- db.visits=[];
- db.visitPeriod={year:newYear,bimester:1};
- persist();
- toast(`Ano letivo ${newYear} iniciado. Todos os alunos estão com 0 vistos.`);
- visitsTeacher()
-}
-function visitArchiveSummaryHtml(){
- const arr=[...(db.visitArchives||[])].sort((a,b)=>Number(b.endedAt||b.id||0)-Number(a.endedAt||a.id||0)).slice(0,8);
- if(!arr.length)return '<p class="muted small">Ainda não há bimestres arquivados.</p>';
- return `<div class="visitArchiveGrid">${arr.map(a=>`<div class="visitArchiveCard"><b>${e(a.label||((a.bimester||1)+"º Bimestre de "+(a.year||"")))}</b><span>${Number(a.total||0)} visto(s) arquivados</span><br><span>Encerrado em ${new Date(a.endedAt||Date.now()).toLocaleDateString("pt-BR")}</span></div>`).join("")}</div>`
-}
-
-function setVisitBimester(value){
- const n=parseInt(value,10);if(![1,2,3,4].includes(n))return;
- const p=currentVisitPeriod();
- db.visitPeriod={year:p.year,bimester:n};
- localStorage.setItem("jc_visitPeriod",JSON.stringify(db.visitPeriod));
- scheduleCloudPush();
- const tag=byId("visitPeriodTag");if(tag)tag.textContent=`📘 ${n}º Bimestre`;
- const sel=byId("visitBimesterSelect");if(sel&&String(sel.value)!==String(n))sel.value=String(n);
-}
-
-
-function visitRosterClass(){
- const sel=byId("visitRosterClass");
- return sel?.value||S.cls||(db.classes||CLASSES||[])[0]||""
-}
-function visitStudentNumber(st){
- const raw=st?.chamada??st?.numero??st?.num??"";
- return raw===""?"—":raw
-}
-function visitRosterRows(className){
- const students=(db.students||[]).filter(st=>st.turma===className).sort((a,b)=>{
-   const na=Number(a.chamada),nb=Number(b.chamada);
-   if(Number.isFinite(na)&&Number.isFinite(nb)&&na!==nb)return na-nb;
-   return String(a.nome||"").localeCompare(String(b.nome||""),"pt-BR")
- });
- return students.map(st=>({student:st,total:visitTotal(st.login)}))
-}
-function visitRosterTableHtml(className){
- const rows=visitRosterRows(className);
- if(!rows.length)return '<tr><td colspan="4" class="muted">Nenhum aluno encontrado nesta turma.</td></tr>';
- return rows.map(({student:st,total})=>`<tr><td>${e(String(visitStudentNumber(st)))}</td><td><b>${e(st.nome)}</b></td><td>${e(st.turma)}</td><td><span class="visitCountPill ${total===0?"visitZero":""}">⭐ ${total}</span></td></tr>`).join("")
-}
-function updateVisitRoster(){
- const className=visitRosterClass();
- const body=byId("visitRosterBody");if(body)body.innerHTML=visitRosterTableHtml(className);
- const title=byId("visitRosterTitle");if(title)title.textContent=`Relação de Vistos — ${className}`;
-}
-function csvVisitEscape(value){
- const v=String(value??"");
- return `"${v.replace(/"/g,'""')}"`
-}
-function downloadVisitExcel(){
- const className=visitRosterClass();
- const rows=visitRosterRows(className);
- if(!rows.length)return toast("Nenhum aluno encontrado nesta turma.");
- const p=currentVisitPeriod();
- const sep=";";
- const lines=[
-   ["Nº","Aluno","Turma","Bimestre","Ano","Quantidade de vistos"].map(csvVisitEscape).join(sep),
-   ...rows.map(({student:st,total})=>[
-     visitStudentNumber(st),st.nome,st.turma,`${p.bimester}º Bimestre`,p.year,total
-   ].map(csvVisitEscape).join(sep))
- ];
- const blob=new Blob(["\ufeff"+lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
- const url=URL.createObjectURL(blob);
- const a=document.createElement("a");
- const safe=String(className).normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase();
- a.href=url;
- a.download=`vistos-${safe}-${p.bimester}o-bimestre-${p.year}.csv`;
- document.body.appendChild(a);a.click();a.remove();
- setTimeout(()=>URL.revokeObjectURL(url),1200);
- toast("Planilha baixada. Abra o arquivo no Excel.")
-}
-
-
-function toggleVisitRoster(){
- const content=byId("visitRosterContent"),btn=byId("visitRosterToggle");
- if(!content||!btn)return;
- const opening=content.classList.contains("hidden");
- content.classList.toggle("hidden",!opening);
- btn.classList.toggle("open",opening);
- btn.setAttribute("aria-expanded",opening?"true":"false");
-}
-
-function visitsTeacher(){
- stopVisitCamera();
- const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today),classes=[...(db.classes||CLASSES||[])];
- const classCards=classes.map(c=>`<div class="visitClassCard"><span>${e(c)}</span><b data-visit-class="${e(c)}">${todayRows.filter(v=>v.turma===c).length}</b><span>visto(s) hoje</span></div>`).join("");
- page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a>
- <h1 class="center">⭐ Leitor de Vistos</h1><p class="sub">Leitura pelo celular com um toque por aluno. Cada aluno recebe no máximo 1 visto por dia.</p>
- <div class="visitPeriodBar"><div><span id="visitPeriodTag" class="visitPeriodTag">📘 ${visitPeriodLabel()}</span><div class="small muted" style="margin-top:5px">A contagem exibida aos alunos pertence somente ao período atual.</div></div><div><label class="small">Bimestre atual</label><select id="visitBimesterSelect" onchange="setVisitBimester(this.value)" style="min-width:145px">${[1,2,3,4].map(n=>`<option value="${n}" ${currentVisitPeriod().bimester===n?"selected":""}>${n}º Bimestre</option>`).join("")}</select></div></div>
- <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
- <div class="visitReaderGrid">
-  <section class="visitScanBox"><h3>📱 Leitura rápida</h3><p class="small muted">Você pode continuar usando o app Scanner de Código QR e colar a leitura aqui. Pela câmera do programa, abra a câmera e toque em <b>Fazer leitura</b> para cada aluno.</p>
-   <label>Turma de referência</label><select onchange="S.cls=this.value;visitsTeacher()">${classes.map(c=>`<option ${c===S.cls?"selected":""}>${e(c)}</option>`).join("")}</select>
-   <label style="margin-top:10px">Conteúdo do QR Code</label>
-   <input id="visitQuickInput" class="visitQuickInput" placeholder="Aguardando leitura do QR..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" onkeydown="visitQuickKey(event)" onpaste="visitQuickPaste()">
-   <div class="actions" style="margin-top:9px"><button class="primary" onclick="pasteVisitFromClipboard()">📋 Colar e registrar</button><button class="secondary" onclick="startVisitCamera()">📷 Abrir câmera</button></div>
-   <div id="visitCameraWrap" class="cameraQrWrap hidden"><video id="visitCameraVideo" playsinline muted></video><div style="padding:10px;background:#fff;display:flex;gap:8px;flex-wrap:wrap"><button id="visitReadBtn" class="primary" onclick="readVisitQrOnce()">📷 Fazer leitura</button><button class="secondary" onclick="stopVisitCamera()">Fechar câmera</button></div><div class="small muted" style="background:#fff;padding:0 10px 10px">Cada toque em <b>Fazer leitura</b> lê somente um QR. Encontrando o aluno, o visto é salvo automaticamente. A confirmação fica na tela até a próxima leitura.</div></div>
-   <div id="visitResult" class="visitResult"><div class="visitResultIcon">⭐</div><div><strong>Aguardando próxima leitura</strong><small>O campo fica pronto para o próximo aluno.</small></div></div>
-  </section>
-  <section class="visitScanBox"><h3>⚡ Colar várias leituras de uma vez</h3><p class="small muted">Se o seu scanner permite copiar o histórico, cole aqui com <b>uma leitura por linha</b>. O programa separa os alunos e registra todos de uma vez.</p>
-   <textarea id="visitBatch" class="visitBatch" placeholder="9ºE - 34. NOME DO ALUNO&#10;9ºE - 35. OUTRO ALUNO&#10;..."></textarea>
-   <button class="primary" style="width:100%;margin-top:8px" onclick="processVisitBatch()">Registrar lista</button>
-   <h3 style="margin-top:18px">Vistos por turma hoje</h3><div class="visitClassCards">${classCards}</div>
-  </section>
+root.innerHTML=`
  </div>
  <section class="panel" style="margin-top:14px"><h3>Últimos vistos de hoje</h3><div class="tableWrap"><table class="visitTable"><thead><tr><th>Hora</th><th>Aluno</th><th>Turma</th><th>Total</th><th></th></tr></thead><tbody id="visitRecentBody">${visitRecentRows(todayRows)}</tbody></table></div></section>
- <section class="panel" style="margin-top:14px">
+ <section id="visitRosterPanel" class="panel" style="margin-top:14px">
   <button id="visitRosterToggle" class="visitRosterToggle" aria-expanded="false" onclick="toggleVisitRoster()"><span>📋 Relação de Vistos</span><span class="visitRosterArrow">▶</span></button>
   <div id="visitRosterContent" class="visitRosterContent hidden">
    <h3 id="visitRosterTitle" style="margin-top:0">Relação de Vistos — ${e(S.cls)}</h3>
