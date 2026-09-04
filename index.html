@@ -1688,6 +1688,141 @@ function removeQuestion(btn){btn.closest('.questionBuilder')?.remove();renumberQ
 function questionLabel(n){return `Questão ${String(Number(n)||0).padStart(2,"0")}.`}
 function renumberQuestions(){[...document.querySelectorAll('.questionBuilder')].forEach((q,i)=>{const n=q.querySelector('.questionNumber');if(n)n.textContent=questionLabel(i+1)})}
 function addQuestion(type='Múltipla Escolha',data={}){byId('qempty')?.remove();const t=normalizeQuestionType(data.tipo||type),qid=data.id||questionUid();const d=document.createElement('div');d.className='questionBuilder';d.dataset.qid=qid;d.innerHTML=`<div class="questionNumber"></div><div class="questionBuilderTop"><div class="qtextWrap"><label>Enunciado</label><div class="formulaFieldRow"><textarea class="qtext" placeholder="Digite o enunciado da questão (aceita fórmulas)">${e(data.texto||'')}</textarea><button type="button" class="formulaBtn" onclick="openFormulaEditor(this.previousElementSibling)">ƒx Fórmula</button></div></div><div><label>Tipo de questão</label><select class="qtype" onchange="refreshQuestionType(this)"><option ${t==='Múltipla Escolha'?'selected':''}>Múltipla Escolha</option><option ${t==='Discursiva'?'selected':''}>Discursiva</option><option ${t==='Certo ou Errado'?'selected':''}>Certo ou Errado</option><option ${t==='Resposta Curta'?'selected':''}>Resposta Curta</option></select></div><div><label>Valor</label><input class="qvalue" type="number" min="0" step="0.1" value="${Number(data.valor??1)}" oninput="updateActivityTotal()"></div><button type="button" class="danger" onclick="removeQuestion(this)">🗑</button></div><div class="questionImageBox"><div><label>Imagem do enunciado por URL (opcional)</label><input class="qImageUrl" placeholder="https://..." value="${e(data.imageUrl||'')}" oninput="previewUrlImage(this,'question')"></div><div><label>Ou anexar imagem</label><input class="qImageKey" type="hidden" value="${e(data.imageKey||'')}"><input class="qFile" type="file" accept="image/*" style="display:none" onchange="uploadBuilderImage(this,'question')"><button type="button" class="secondary qUploadBtn" onclick="this.parentElement.querySelector('.qFile').click()">📷 Anexar imagem</button></div></div><div class="qPreview">${mediaPreviewHtml(data.imageUrl,data.imageKey,'questionImagePreview')}</div><div class="alternativesWrap"><label>Alternativas e gabarito</label><div class="alternatives"></div><button type="button" class="secondary miniAction" onclick="addAlternative(this)">＋ Adicionar alternativa</button><div class="questionTypeHelp">Marque uma alternativa como gabarito para correção automática.</div></div><div class="manualAnswerWrap hidden"><label>Gabarito/orientação para o professor (opcional)</label><div class="formulaFieldRow"><textarea class="qanswer" placeholder="Resposta esperada ou critérios de correção (aceita fórmulas)">${e(data.resposta||'')}</textarea><button type="button" class="formulaBtn" onclick="openFormulaEditor(this.previousElementSibling)">ƒx Fórmula</button></div></div>`;byId('questions').appendChild(d);const alts=Array.isArray(data.alternativas)?data.alternativas:[];if(t==='Certo ou Errado'&&!alts.length){addAlternative(d,'Certo');addAlternative(d,'Errado')}else if(t==='Múltipla Escolha'&&!alts.length){['','','',''].forEach(x=>addAlternative(d,x))}else alts.forEach(a=>addAlternative(d,a.texto||'',!!a.correta,a.imageUrl||'',a.imageKey||''));refreshQuestionType(d.querySelector('.qtype'));renumberQuestions();updateActivityTotal();hydrateActivityImages(d)}
+
+let wordActivityImportState=null;
+function docxLocal(n){return String(n?.localName||n?.nodeName||'').split(':').pop()}
+function docxChild(n,name){return [...(n?.children||[])].find(x=>docxLocal(x)===name)||null}
+function docxChildren(n,name){return [...(n?.children||[])].filter(x=>docxLocal(x)===name)}
+function docxAttr(n,name){if(!n)return'';return n.getAttribute(name)||n.getAttribute('w:'+name)||n.getAttribute('m:'+name)||n.getAttribute('r:'+name)||n.getAttributeNS?.('http://schemas.openxmlformats.org/officeDocument/2006/relationships',name)||''}
+function ommlToLatex(node){
+ if(!node)return'';
+ const ln=docxLocal(node);
+ if(ln==='t')return String(node.textContent||'').replace(/\\/g,'\\backslash ');
+ if(ln==='r')return [...node.children].filter(x=>docxLocal(x)!=='rPr').map(ommlToLatex).join('');
+ if(ln==='f'){return `\\frac{${ommlToLatex(docxChild(node,'num'))}}{${ommlToLatex(docxChild(node,'den'))}}`}
+ if(ln==='rad'){const d=ommlToLatex(docxChild(node,'deg')).trim(),el=ommlToLatex(docxChild(node,'e'));return d?`\\sqrt[${d}]{${el}}`:`\\sqrt{${el}}`}
+ if(ln==='sSup')return `${ommlToLatex(docxChild(node,'e'))}^{${ommlToLatex(docxChild(node,'sup'))}}`;
+ if(ln==='sSub')return `${ommlToLatex(docxChild(node,'e'))}_{${ommlToLatex(docxChild(node,'sub'))}}`;
+ if(ln==='sSubSup')return `${ommlToLatex(docxChild(node,'e'))}_{${ommlToLatex(docxChild(node,'sub'))}}^{${ommlToLatex(docxChild(node,'sup'))}}`;
+ if(ln==='limLow')return `${ommlToLatex(docxChild(node,'e'))}_{${ommlToLatex(docxChild(node,'lim'))}}`;
+ if(ln==='limUpp')return `${ommlToLatex(docxChild(node,'e'))}^{${ommlToLatex(docxChild(node,'lim'))}}`;
+ if(ln==='func')return `${ommlToLatex(docxChild(node,'fName'))}\\left(${ommlToLatex(docxChild(node,'e'))}\\right)`;
+ if(ln==='nary'){
+  const pr=docxChild(node,'naryPr'),chr=pr?[...pr.getElementsByTagName('*')].find(x=>docxLocal(x)==='chr'):null;
+  const raw=docxAttr(chr,'val')||chr?.textContent||'∑';
+  const op=raw==='∑'?'\\sum':raw==='∫'?'\\int':raw==='∏'?'\\prod':raw==='⋃'?'\\bigcup':raw==='⋂'?'\\bigcap':raw;
+  const sub=ommlToLatex(docxChild(node,'sub')),sup=ommlToLatex(docxChild(node,'sup')),el=ommlToLatex(docxChild(node,'e'));
+  return `${op}${sub?`_{${sub}}`:''}${sup?`^{${sup}}`:''}${el?` ${el}`:''}`;
+ }
+ if(ln==='d'){
+  const pr=docxChild(node,'dPr');let beg='(',end=')';
+  if(pr){const b=[...pr.getElementsByTagName('*')].find(x=>docxLocal(x)==='begChr'),z=[...pr.getElementsByTagName('*')].find(x=>docxLocal(x)==='endChr');beg=docxAttr(b,'val')||beg;end=docxAttr(z,'val')||end}
+  return `\\left${beg}${ommlToLatex(docxChild(node,'e'))}\\right${end}`;
+ }
+ if(ln==='m'){const rows=docxChildren(node,'mr');if(rows.length)return `\\begin{matrix}${rows.map(r=>docxChildren(r,'e').map(ommlToLatex).join('&')).join('\\\\')}\\end{matrix}`}
+ if(ln==='eqArr'){const rows=docxChildren(node,'e');return `\\begin{aligned}${rows.map(ommlToLatex).join('\\\\')}\\end{aligned}`}
+ if(/Pr$/.test(ln)||['ctrlPr','argPr','rPr'].includes(ln))return'';
+ return [...(node.children||[])].map(ommlToLatex).join('')||String(node.textContent||'');
+}
+function docxRunText(run){
+ const pr=docxChild(run,'rPr'),va=pr?[...pr.getElementsByTagName('*')].find(x=>docxLocal(x)==='vertAlign'):null,val=String(docxAttr(va,'val')).toLowerCase();
+ const base=[...run.children].filter(x=>docxLocal(x)!=='rPr').map(x=>{
+  const ln=docxLocal(x);if(ln==='t')return x.textContent||'';if(ln==='tab')return' ';if(ln==='br')return'\n';if(ln==='oMath'||ln==='oMathPara')return `\\(${ommlToLatex(x)}\\)`;return''
+ }).join('');
+ if(!base)return'';
+ if(val==='superscript')return `\\(^{${base}}\\)`;
+ if(val==='subscript')return `\\(_{${base}}\\)`;
+ return base;
+}
+function docxParagraphText(p){
+ let out='';
+ for(const ch of [...p.children]){
+  const ln=docxLocal(ch);
+  if(ln==='r')out+=docxRunText(ch);
+  else if(ln==='hyperlink')out+=[...ch.children].map(x=>docxLocal(x)==='r'?docxRunText(x):'').join('');
+  else if(ln==='oMath'||ln==='oMathPara')out+=`\\(${ommlToLatex(ch)}\\)`;
+  else if(ln==='smartTag'||ln==='sdt')out+=String(ch.textContent||'');
+ }
+ return out.replace(/\u00a0/g,' ').replace(/[ \t]+\n/g,'\n').trim();
+}
+function docxResolvePath(base,target){
+ if(!target)return'';if(target.startsWith('/'))return target.replace(/^\/+/,'');
+ const dir=base.split('/').slice(0,-1);
+ for(const part of target.split('/')){if(part==='..')dir.pop();else if(part!=='.'&&part)dir.push(part)}
+ return dir.join('/');
+}
+function docxImageMime(name){const ext=String(name||'').split('.').pop().toLowerCase();return ext==='png'?'image/png':ext==='gif'?'image/gif':ext==='webp'?'image/webp':ext==='svg'?'image/svg+xml':'image/jpeg'}
+async function parseDocxActivity(file){
+ if(!window.JSZip)throw new Error('Leitor de Word indisponível.');
+ const zip=await JSZip.loadAsync(file),xmlText=await zip.file('word/document.xml')?.async('text');
+ if(!xmlText)throw new Error('Documento Word inválido.');
+ const relText=await zip.file('word/_rels/document.xml.rels')?.async('text')||'',parser=new DOMParser(),doc=parser.parseFromString(xmlText,'application/xml'),relsDoc=parser.parseFromString(relText,'application/xml'),relMap={};
+ [...relsDoc.getElementsByTagName('*')].filter(x=>docxLocal(x)==='Relationship').forEach(r=>relMap[r.getAttribute('Id')]=docxResolvePath('word/document.xml',r.getAttribute('Target')));
+ const body=[...doc.getElementsByTagName('*')].find(x=>docxLocal(x)==='body');if(!body)throw new Error('Não foi possível ler o conteúdo do Word.');
+ const blocks=[];
+ async function makeBlock(p){
+  const text=docxParagraphText(p),imgs=[];
+  for(const b of [...p.getElementsByTagName('*')].filter(x=>docxLocal(x)==='blip')){
+   const path=relMap[docxAttr(b,'embed')],zf=path&&zip.file(path);if(!zf)continue;
+   const blob=await zf.async('blob'),name=path.split('/').pop()||'imagem.jpg';imgs.push(new File([blob],name,{type:docxImageMime(name)}));
+  }
+  if(text||imgs.length)blocks.push({text,images:imgs});
+ }
+ for(const el of [...body.children]){
+  const ln=docxLocal(el);if(ln==='p')await makeBlock(el);else if(ln==='tbl')for(const pp of [...el.getElementsByTagName('*')].filter(x=>docxLocal(x)==='p'))await makeBlock(pp);
+ }
+ const questions=[];let q=null,lastAlt=null,extraImages=0;
+ const qHeader=/^QUEST(?:ÃO|AO)\s+(\d+)(?:\s*[—–-]\s*(.*))?$/i,qStart=/^(\d+)\s*[\.\):-]\s*(.*)$/i,altRe=/^\s*([A-H])\s*[\)\.\-:]\s*(.*)$/i,gabRe=/^\s*(?:GABARITO|RESPOSTA(?:\s+CORRETA)?)\s*[:\-]\s*(.+)\s*$/i,valRe=/^\s*(?:VALOR|PONTOS?|PONTUAÇÃO|PONTUACAO)\s*[:\-]?\s*([\d.,]+)/i,tipoRe=/^\s*TIPO\s*[:\-]\s*(.+)$/i;
+ function inferType(s,alts=[]){const x=String(s||'').toLowerCase();if(x.includes('certo')||x.includes('errado')||x.includes('verdadeiro')||x.includes('falso'))return'Certo ou Errado';if(x.includes('resposta curta'))return'Resposta Curta';if(x.includes('discurs'))return'Discursiva';if(x.includes('múltip')||x.includes('multip')||alts.length>=2)return'Múltipla Escolha';return'Discursiva'}
+ function finish(){if(!q)return;if(!q.texto.trim()&&q._parts?.length)q.texto=q._parts.join('\n').trim();delete q._parts;if(q.texto.trim())questions.push(q);q=null;lastAlt=null}
+ for(const block of blocks){
+  const t=block.text.trim();let m;
+  if((m=qHeader.exec(t))||(m=qStart.exec(t))){
+   finish();q={tipo:'',texto:'',valor:1,alternativas:[],resposta:'',_parts:[],_imageFile:null,_number:Number(m[1])};lastAlt=null;
+   let rest=(m[2]||'').trim(),vm=rest.match(/(\d+(?:[.,]\d+)?)\s*ponto/i);
+   if(vm){q.valor=Number(vm[1].replace(',','.'))||1;rest=rest.replace(vm[0],'').replace(/^[\s—–-]+|[\s—–-]+$/g,'')}
+   if(/múltip|multip|discurs|certo|errado|resposta curta/i.test(rest)&&rest.length<60){q.tipo=inferType(rest);rest=''}
+   if(rest)q._parts.push(rest);if(block.images.length){q._imageFile=block.images[0];extraImages+=Math.max(0,block.images.length-1)}continue;
+  }
+  if(!q)continue;
+  if((m=altRe.exec(t))){lastAlt={texto:(m[2]||'').trim(),correta:false,_imageFile:block.images[0]||null};q.alternativas.push(lastAlt);extraImages+=Math.max(0,block.images.length-1);continue}
+  if((m=gabRe.exec(t))){const g=m[1].trim(),letter=(g.match(/^[A-H]/i)||[])[0];if(letter&&q.alternativas.length){const ix=letter.toUpperCase().charCodeAt(0)-65;if(q.alternativas[ix])q.alternativas[ix].correta=true}else if(/certo|verdadeiro/i.test(g)&&q.alternativas.length){const a=q.alternativas.find(x=>/certo|verdadeiro/i.test(x.texto));if(a)a.correta=true}else if(/errado|falso/i.test(g)&&q.alternativas.length){const a=q.alternativas.find(x=>/errado|falso/i.test(x.texto));if(a)a.correta=true}else q.resposta=g;continue}
+  if((m=valRe.exec(t))){q.valor=Number(m[1].replace(',','.'))||q.valor;continue}
+  if((m=tipoRe.exec(t))){q.tipo=inferType(m[1],q.alternativas);continue}
+  if(t)q._parts.push(t);
+  if(block.images.length){if(lastAlt&&!lastAlt._imageFile)lastAlt._imageFile=block.images[0];else if(!q._imageFile)q._imageFile=block.images[0];else extraImages++;extraImages+=Math.max(0,block.images.length-1)}
+ }
+ finish();questions.forEach(q=>{q.tipo=q.tipo||inferType('',q.alternativas);if(q.tipo==='Certo ou Errado'&&q.alternativas.length<2)q.alternativas=[{texto:'Certo',correta:false},{texto:'Errado',correta:false}]});
+ return {questions,blocks:blocks.length,extraImages};
+}
+function closeWordImportPreview(){const modal=byId('wordImportModal');if(modal)modal.remove();if(wordActivityImportState?.urls)wordActivityImportState.urls.forEach(u=>{try{URL.revokeObjectURL(u)}catch{}});wordActivityImportState=null}
+function wordImportImg(file,urls){if(!file)return'';const u=URL.createObjectURL(file);urls.push(u);return `<img src="${u}" alt="Imagem importada" style="max-width:180px;max-height:120px;object-fit:contain;border:1px solid #d6dde7;border-radius:10px;margin-top:8px">`}
+function showWordImportPreview(parsed,fileName){
+ closeWordImportPreview();const urls=[];wordActivityImportState={...parsed,fileName,urls};const modal=document.createElement('div');modal.id='wordImportModal';modal.className='formulaModal';const qs=parsed.questions||[],imgCount=qs.reduce((n,q)=>n+(q._imageFile?1:0)+(q.alternativas||[]).filter(a=>a._imageFile).length,0);
+ modal.innerHTML=`<div class="formulaBox" style="max-width:900px;max-height:92vh;overflow:auto"><div class="sectionHead"><div><h3 style="margin:0">📄 Conferir importação do Word</h3><p class="small muted">${e(fileName)} • ${qs.length} questão(ões) • ${imgCount} imagem(ns) relacionada(s)</p></div><button class="secondary" type="button" onclick="closeWordImportPreview()">Fechar</button></div><div class="notice"><b>Nada será publicado automaticamente.</b><br>Confira as questões. Depois de adicionar, você ainda poderá editar enunciado, fórmulas, imagens, alternativas, gabarito e valor normalmente.</div>${parsed.extraImages?`<div class="notice"><b>Atenção:</b> ${parsed.extraImages} imagem(ns) adicional(is) não puderam ser colocadas porque cada enunciado/alternativa aceita uma imagem.</div>`:''}<div class="list">${qs.map((q,i)=>`<div class="row" style="display:block"><b>${questionLabel(i+1)} ${e(q.tipo)} • ${Number(q.valor||1).toFixed(1)} pt</b><div style="white-space:pre-wrap;margin-top:6px">${formulaTextHtml(q.texto||'')}</div>${wordImportImg(q._imageFile,urls)}${(q.alternativas||[]).length?`<div style="margin-top:8px">${q.alternativas.map((a,j)=>`<div style="padding:5px 0">${a.correta?'✅':'○'} <b>${String.fromCharCode(65+j)})</b> ${formulaTextHtml(a.texto||'')}${wordImportImg(a._imageFile,urls)}</div>`).join('')}</div>`:''}${q.resposta?`<div class="small" style="margin-top:6px"><b>Gabarito/orientação:</b> ${formulaTextHtml(q.resposta)}</div>`:''}</div>`).join('')||'<div class="empty">Nenhuma questão reconhecida. Use títulos como “Questão 1” e alternativas A), B), C), D).</div>'}</div><div class="toolrow" style="margin-top:16px;justify-content:flex-end"><button class="secondary" onclick="closeWordImportPreview()">Cancelar</button><button class="primary" ${qs.length?'':'disabled'} onclick="commitWordActivityImport()">✅ Adicionar à atividade</button></div></div>`;
+ document.body.appendChild(modal);setTimeout(()=>typesetMath(modal),0);
+}
+async function handleWordActivityImport(input){
+ const file=input?.files?.[0];if(!file)return;input.value='';
+ if(!/\.docx$/i.test(file.name))return toast('Selecione um arquivo Word no formato .docx.');
+ if(file.size>20*1024*1024)return toast('O arquivo Word deve ter no máximo 20 MB.');
+ const status=byId('wordImportStatus');if(status)status.textContent='Lendo o arquivo Word, fórmulas e imagens...';
+ try{const parsed=await parseDocxActivity(file);if(status)status.textContent=parsed.questions.length?`${parsed.questions.length} questão(ões) encontrada(s). Confira antes de adicionar.`:'Nenhuma questão reconhecida no documento.';showWordImportPreview(parsed,file.name)}
+ catch(err){console.error(err);if(status)status.textContent='Não foi possível ler o arquivo.';toast(err?.message||'Não foi possível importar o Word.')}
+}
+async function commitWordActivityImport(){
+ const state=wordActivityImportState;if(!state?.questions?.length)return;const btn=byId('wordImportModal')?.querySelector('.primary');if(btn){btn.disabled=true;btn.textContent='Importando...'}
+ let imageOk=0,imageFail=0,seq=0;
+ try{
+  for(const q of state.questions){
+   if(q._imageFile){try{const key=makeStorageKey('atividades-imagens-word',Date.now(),seq++,q._imageFile);await saveFileBlob(key,q._imageFile,true);q.imageKey=key;imageOk++}catch(err){console.warn(err);imageFail++}}
+   for(const a of q.alternativas||[]){if(a._imageFile){try{const key=makeStorageKey('atividades-imagens-word',Date.now(),seq++,a._imageFile);await saveFileBlob(key,a._imageFile,true);a.imageKey=key;imageOk++}catch(err){console.warn(err);imageFail++}}}
+   addQuestion(q.tipo,{tipo:q.tipo,texto:q.texto,valor:q.valor,resposta:q.resposta,imageKey:q.imageKey||'',alternativas:(q.alternativas||[]).map(a=>({texto:a.texto,correta:!!a.correta,imageKey:a.imageKey||''}))});
+  }
+  const count=state.questions.length;closeWordImportPreview();const status=byId('wordImportStatus');if(status)status.textContent=`${count} questão(ões) adicionada(s) à atividade${imageOk?` • ${imageOk} imagem(ns) incluída(s)`:''}${imageFail?` • ${imageFail} imagem(ns) não enviadas`:''}.`;toast(`${count} questão(ões) importada(s) do Word. Revise antes de publicar.`)
+ }catch(err){console.error(err);toast('A importação foi interrompida. As questões já adicionadas foram mantidas.');if(btn){btn.disabled=false;btn.textContent='✅ Adicionar à atividade'}}
+}
+
 function selectedActivityClasses(){return [...document.querySelectorAll('.activityClassCheck:checked')].map(x=>x.value).filter(v=>CLASSES.includes(v))}
 function toggleAllActivityClasses(master){document.querySelectorAll('.activityClassCheck').forEach(x=>x.checked=master.checked);updateActivityClassSummary()}
 function updateActivityClassSummary(){const selected=selectedActivityClasses(),master=byId('acAll'),summary=byId('activityClassSummary');if(master){master.checked=selected.length===CLASSES.length;master.indeterminate=selected.length>0&&selected.length<CLASSES.length}if(summary)summary.textContent=!selected.length?'Nenhuma turma selecionada':selected.length===CLASSES.length?'Todas as turmas selecionadas':selected.join(', ')}
@@ -1713,7 +1848,7 @@ function createActivity(){page.innerHTML=`<a class="back" href="#" onclick="go('
   <label style="display:flex;gap:10px;align-items:center;margin:9px 0"><input id="secDetectExit" type="checkbox" style="width:auto;min-height:auto" checked> <span><b>Detectar saída da avaliação</b><br><span class="small muted">Troca de aba, minimização ou saída da página será registrada.</span></span></label>
   <label style="display:flex;gap:10px;align-items:center;margin:9px 0"><input id="secWarnFirst" type="checkbox" style="width:auto;min-height:auto" checked> <span><b>1ª saída = aviso</b></span></label>
   <label style="display:flex;gap:10px;align-items:center;margin:9px 0"><input id="secCloseSecond" type="checkbox" style="width:auto;min-height:auto" checked> <span><b>2ª saída = encerrar e enviar automaticamente</b></span></label>
-</div></div></div></div><div class="scoreTotal"><div><span class="small muted">Nota total da atividade</span><b id="activityTotalValue">0,00</b></div><span class="small muted">A nota é calculada pela soma dos valores de cada questão.</span></div><div class="sectionHead"><div><h3 class="sectionTitle" style="margin:0">Questões</h3><p class="small muted">Adicione uma questão por vez.</p></div><div class="toolrow"><button class="secondary" onclick="addQuestion('Múltipla Escolha')">＋ Múltipla escolha</button><button class="secondary" onclick="addQuestion('Discursiva')">＋ Discursiva</button><button class="secondary" onclick="addQuestion('Certo ou Errado')">＋ Certo ou Errado</button><button class="secondary" onclick="addQuestion('Resposta Curta')">＋ Resposta curta</button></div></div><div id="questions" class="activityBuilder"><div class="empty" id="qempty">Nenhuma questão adicionada.</div></div><div class="toolrow" style="margin-top:18px"><button class="secondary" onclick="saveActivity('Rascunho')">💾 Salvar rascunho</button><button class="primary" onclick="saveActivity('Publicada')">📤 Salvar e publicar</button></div>`;setTimeout(updateActivityClassSummary,0)}
+</div></div></div></div><div class="scoreTotal"><div><span class="small muted">Nota total da atividade</span><b id="activityTotalValue">0,00</b></div><span class="small muted">A nota é calculada pela soma dos valores de cada questão.</span></div><div class="panel" style="margin-top:18px;border:1px solid #cfe0f4;background:#f8fbff"><div class="sectionHead"><div><h3 style="margin:0">📄 Importar questões do Word</h3><p class="small muted">Importe um arquivo .docx com questões, alternativas, gabarito, símbolos, fórmulas do Word e imagens. A importação não publica a atividade.</p></div><div class="toolrow"><input id="wordActivityFile" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" style="display:none" onchange="handleWordActivityImport(this)"><button type="button" class="primary" onclick="byId('wordActivityFile').click()">📄 Importar Word (.docx)</button></div></div><div id="wordImportStatus" class="questionTypeHelp">Padrão recomendado: “Questão 1”, alternativas “A) ...”, “B) ...”, “Gabarito: B” e “Valor: 1,0”. Imagens inseridas junto da questão ou alternativa serão relacionadas automaticamente.</div></div><div class="sectionHead"><div><h3 class="sectionTitle" style="margin:0">Questões</h3><p class="small muted">Adicione uma questão por vez ou importe do Word.</p></div><div class="toolrow"><button class="secondary" onclick="addQuestion('Múltipla Escolha')">＋ Múltipla escolha</button><button class="secondary" onclick="addQuestion('Discursiva')">＋ Discursiva</button><button class="secondary" onclick="addQuestion('Certo ou Errado')">＋ Certo ou Errado</button><button class="secondary" onclick="addQuestion('Resposta Curta')">＋ Resposta curta</button></div></div><div id="questions" class="activityBuilder"><div class="empty" id="qempty">Nenhuma questão adicionada.</div></div><div class="toolrow" style="margin-top:18px"><button class="secondary" onclick="saveActivity('Rascunho')">💾 Salvar rascunho</button><button class="primary" onclick="saveActivity('Publicada')">📤 Salvar e publicar</button></div>`;setTimeout(updateActivityClassSummary,0)}
 function saveActivity(status){const x=collectDraftActivity();if(!x.turmas.length)return toast('Selecione pelo menos uma turma.');if(!validateActivityDraft(x))return;const now=Date.now();db.activities.unshift({id:now,...x,status,createdAt:now,publishedAt:status==='Publicada'?now:null,source:'professor-manual'});persist();S.sub=x.disciplina;if(x.turmas.length)S.cls=x.turmas[0];toast(status==='Publicada'?'Atividade publicada para as turmas selecionadas.':'Atividade salva como rascunho.');go('activityList')}
 function publishSavedActivity(id){const a=db.activities.find(x=>x.id===id);if(!a)return;a.status='Publicada';a.publishedAt=Date.now();persist();toast('Atividade publicada e alunos notificados.');activityList()}
 function deleteActivity(id){const a=db.activities.find(x=>x.id===id);if(!a)return;if(!confirm(`Excluir a atividade "${a.titulo}"?`))return;removeActivitiesByIds([id]);activityList()}
