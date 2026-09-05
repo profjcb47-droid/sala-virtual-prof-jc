@@ -1412,38 +1412,60 @@ async function studentPhotoBlobForExport(st){
 }
 function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(r.error||new Error('Falha ao ler imagem'));r.readAsDataURL(blob)})}
 async function exportStudentsWordWithPhotos(turma=''){
-  const students=exportStudentsForClass(turma);if(!students.length)return toast('Não há alunos cadastrados para gerar o Word.');
-  const btnText='Gerando Word com fotos...';toast(btnText);
+  const students=exportStudentsForClass(turma);
+  if(!students.length){toast('Nenhum aluno encontrado para gerar o Word.');return;}
+  toast('Gerando Word com fotos...');
   try{
-    await loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/docx@9.5.1/dist/index.umd.cjs',()=>!!window.docx).catch(async()=>loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/docx@9.5.1/build/index.umd.js',()=>!!window.docx));
-    const D=window.docx;if(!D)throw new Error('Gerador de Word indisponível.');
-    const {Document,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,AlignmentType,VerticalAlign,HeadingLevel,Packer}=D;
+    const docxLib=await import('https://esm.sh/docx@9.7.1');
+    const {Document,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,AlignmentType,VerticalAlign,HeadingLevel,Packer}=docxLib;
     const rows=[];
-    rows.push(new TableRow({tableHeader:true,children:[
-      new TableCell({width:{size:1200,type:WidthType.DXA},children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Foto',bold:true})]})]}),
-      new TableCell({width:{size:700,type:WidthType.DXA},children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Nº',bold:true})]})]}),
-      new TableCell({width:{size:3300,type:WidthType.DXA},children:[new Paragraph({children:[new TextRun({text:'Aluno',bold:true})]})]}),
-      new TableCell({width:{size:1500,type:WidthType.DXA},children:[new Paragraph({children:[new TextRun({text:'Turma',bold:true})]})]}),
-      new TableCell({width:{size:1800,type:WidthType.DXA},children:[new Paragraph({children:[new TextRun({text:'Login',bold:true})]})]}),
-      new TableCell({width:{size:1200,type:WidthType.DXA},children:[new Paragraph({children:[new TextRun({text:'Senha',bold:true})]})]})
-    ]}));
+    const header=['Foto','Nº','Aluno','Turma','Login','Senha'].map(txt=>new TableCell({
+      verticalAlign:VerticalAlign.CENTER,
+      children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:txt,bold:true})]})]
+    }));
+    rows.push(new TableRow({children:header,tableHeader:true}));
     for(const st of students){
-      const photo=await studentPhotoBlobForExport(st);let photoChildren=[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Sem foto',size:16})]})];
-      if(photo){const bytes=new Uint8Array(await photo.arrayBuffer());photoChildren=[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:bytes,transformation:{width:58,height:58},type:'jpg'})]})]}
+      let photoCell;
+      try{
+        const blob=await studentPhotoBlobForExport(st);
+        if(blob){
+          const bytes=new Uint8Array(await blob.arrayBuffer());
+          photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:bytes,transformation:{width:58,height:58}})]})]});
+        }
+      }catch(e){console.warn('Foto não carregada no Word:',st?.name,e);}
+      if(!photoCell) photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun('Sem foto')]})]});
+      const textCell=(value,center=false)=>new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:center?AlignmentType.CENTER:AlignmentType.LEFT,children:[new TextRun(String(value??''))]})]});
       rows.push(new TableRow({children:[
-        new TableCell({verticalAlign:VerticalAlign.CENTER,children:photoChildren}),
-        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,text:String(st.chamada||'')})]}),
-        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({text:String(st.nome||'')})]}),
-        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({text:String(st.turma||'')})]}),
-        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({text:String(st.login||'')})]}),
-        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({text:String(st.senha||'')})]})
+        photoCell,
+        textCell(st.call||st.number||st.no||'',true),
+        textCell(st.name||st.nome||''),
+        textCell(st.className||st.turma||turma,true),
+        textCell(st.login||''),
+        textCell(st.password||st.senha||'')
       ]}));
     }
-    const title=turma?`Relação de Alunos — ${turma}`:'Relação de Alunos — Todas as Turmas';
-    const doc=new Document({sections:[{properties:{},children:[new Paragraph({text:title,heading:HeadingLevel.HEADING_1,alignment:AlignmentType.CENTER}),new Paragraph({text:`${students.length} aluno(s)`,alignment:AlignmentType.CENTER}),new Table({width:{size:100,type:WidthType.PERCENTAGE},rows})]}]});
-    const blob=await Packer.toBlob(doc),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Alunos_${safeExportName(turma)}_com_fotos.docx`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500);toast('Word com fotos gerado com sucesso.');
-  }catch(err){console.error(err);toast('Não foi possível gerar o Word com fotos. Verifique a internet e tente novamente.');}
+    const titleTurma=turma||'Todas as turmas';
+    const doc=new Document({sections:[{children:[
+      new Paragraph({heading:HeadingLevel.HEADING_1,alignment:AlignmentType.CENTER,children:[new TextRun(`Relação de alunos — ${titleTurma}`)]}),
+      new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun(`Total: ${students.length} aluno${students.length===1?'':'s'}`)]}),
+      new Paragraph(''),
+      new Table({width:{size:100,type:WidthType.PERCENTAGE},rows})
+    ]}]});
+    const blob=await Packer.toBlob(doc);
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`Alunos_${safeExportName(titleTurma)}_com_fotos.docx`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);
+    toast('Word com fotos gerado com sucesso.');
+  }catch(err){
+    console.error('Erro ao gerar Word com fotos:',err);
+    toast('Erro ao gerar o Word com fotos. Atualize a página e tente novamente.');
+    alert('Não foi possível gerar o Word com fotos.\n\nDetalhes: '+(err?.message||err));
+  }
 }
+
 async function exportStudentsExcelWithPhotos(turma=''){
   const students=exportStudentsForClass(turma);if(!students.length)return toast('Não há alunos cadastrados para gerar o Excel.');toast('Gerando Excel com fotos...');
   try{
