@@ -1253,7 +1253,7 @@ function classStudentsPage(){
   if(!CLASSES.includes(S.cls)&&CLASSES.length)S.cls=CLASSES[0];
   if(!S.classStudentsView)S.classStudentsView='list';
   const list=(Array.isArray(db.students)?db.students:[]).filter(s=>s.turma===S.cls).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR"));
-  const listHtml=`<div class="studentTablePanel"><div class="studentTableHead"><div>Nº</div><div>Aluno</div><div>Ações</div></div>${list.map((st,i)=>`<div class="studentTableRow"><div class="studentCall">${e(st.chamada||"—")}</div><div class="studentName"><div class="studentNameWithPhoto"><div class="studentMiniPhoto" id="class_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><div><b>${e(st.nome)}</b><div class="small muted">${e(studentQrLabel(st))}</div></div></div></div><div class="studentRowActions"><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button><button type="button" class="danger" onclick="classDeleteStudent('${encodeURIComponent(st.login)}')">Excluir</button></div></div>`).join("")||'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>'}</div>`;
+  const listHtml=`<div class="studentTablePanel"><div class="studentTableHead" style="grid-template-columns:64px 1fr 120px 190px"><div>Nº</div><div>Aluno</div><div>Status</div><div>Ações</div></div>${list.map((st,i)=>`<div class="studentTableRow" style="grid-template-columns:64px 1fr 120px 190px"><div class="studentCall">${e(st.chamada||"—")}</div><div class="studentName"><div class="studentNameWithPhoto"><div class="studentMiniPhoto" id="class_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><div><b>${e(st.nome)}</b><div class="small muted">${e(studentQrLabel(st))}</div></div></div></div><div><select aria-label="Status do aluno" onchange="setStudentStatus('${encodeURIComponent(st.login)}',this.value)" style="min-width:105px;font-weight:700;padding:8px 6px;border:1px solid #cbd8e6;border-radius:9px;background:#fff"><option value="Ativo" ${(st.status||'Ativo')==='Ativo'?'selected':''}>Ativo</option><option value="Transf." ${st.status==='Transf.'?'selected':''}>Transf.</option></select></div><div class="studentRowActions"><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button><button type="button" class="danger" onclick="classDeleteStudent('${encodeURIComponent(st.login)}')">Excluir</button></div></div>`).join("")||'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>'}</div>`;
   const photoHtml=list.length?`<div class="studentPhotoGrid">${list.map((st,i)=>`<article class="studentPhotoCard"><div class="studentGalleryPhoto" id="gallery_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><h4>${e(st.chamada||'—')}. ${e(st.nome)}</h4><div class="studentGalleryLabel">${e(studentQrLabel(st))}</div><div class="studentRowActions"><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button></div></article>`).join('')}</div>`:'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>';
   page.innerHTML=`
     <a class="back" href="#" onclick="go('classes');return false">← Gerenciar turmas</a>
@@ -1416,7 +1416,7 @@ async function exportStudentsWordWithPhotos(turma=''){
   if(!students.length){toast('Nenhum aluno encontrado para gerar o Word.');return;}
   toast('Gerando Word com fotos...');
   try{
-    const docxLib=await import('https://cdn.jsdelivr.net/npm/docx@9.7.1/+esm');
+    const docxLib=await import('https://esm.sh/docx@9.7.1');
     const {Document,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,AlignmentType,VerticalAlign,HeadingLevel,Packer}=docxLib;
     const rows=[];
     const header=['Foto','Nº','Aluno','Turma','Login','Senha'].map(txt=>new TableCell({
@@ -1430,7 +1430,7 @@ async function exportStudentsWordWithPhotos(turma=''){
         const blob=await studentPhotoBlobForExport(st);
         if(blob){
           const bytes=new Uint8Array(await blob.arrayBuffer());
-          photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({type:'jpg',data:bytes,transformation:{width:58,height:58}})]})]});
+          photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:bytes,transformation:{width:58,height:58}})]})]});
         }
       }catch(e){console.warn('Foto não carregada no Word:',st?.name,e);}
       if(!photoCell) photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun('Sem foto')]})]});
@@ -1491,12 +1491,13 @@ async function classSaveStudent(){
   if(db.students.some(s=>s.turma===turma&&Number(s.chamada)===chamada&&s.login!==original))return toast("Esse número de chamada já existe nessa turma.");
   let st=null;
   if(original){const idx=db.students.findIndex(s=>s.login===original);if(idx<0)return toast("Aluno não encontrado.");db.students[idx]={...db.students[idx],turma,chamada,nome};st=db.students[idx]}
-  else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha};db.students.push(st)}
+  else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};db.students.push(st)}
   let photoOk=true;
   if(pendingTeacherStudentPhoto){try{await assignStudentPhoto(st,pendingTeacherStudentPhoto)}catch(err){photoOk=false;console.error(err)}}
   closeTeacherCamera();clearTeacherStudentPhoto();S.cls=turma;persist();await syncNow(false);
   toast(photoOk?(original?"Aluno atualizado.":"Aluno cadastrado."):(original?"Aluno atualizado, mas a foto não foi enviada.":"Aluno cadastrado, mas a foto não foi enviada."));classStudentsPage();
 }
+function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
 function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
 function classDeleteStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;db.students=db.students.filter(s=>s.login!==login);persist();toast("Aluno excluído.");classStudentsPage()}
 function normalizeHeader(v){return String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª.]/g,"").replace(/[^a-z0-9]+/g," ").trim()}
