@@ -1258,7 +1258,7 @@ function classStudentsPage(){
   page.innerHTML=`
     <a class="back" href="#" onclick="go('classes');return false">← Gerenciar turmas</a>
     <h1 class="center">${e(S.cls)}</h1><p class="sub">${list.length} alunos cadastrados • em ordem de chamada</p>
-    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha com fotos ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel + fotos</button><button type="button" class="secondary" onclick="downloadStudentCredentials(S.cls)">📥 Baixar credenciais</button><button type="button" class="primary" onclick="saveClassStudentsNow()">💾 Salvar relação</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div></div>
+    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha com fotos ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel + fotos</button><button type="button" class="secondary" onclick="downloadStudentCredentials(S.cls)">📥 Baixar credenciais</button><button type="button" class="primary" onclick="saveClassStudentsNow()">💾 Salvar relação</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div><div class="toolrow" style="margin-top:10px;padding-top:10px;border-top:1px solid #dbe7f3"><button type="button" class="secondary" onclick="exportStudentsWordWithPhotos(S.cls)" style="font-weight:800">📄 Word com fotos</button><button type="button" class="secondary" onclick="exportStudentsExcelWithPhotos(S.cls)" style="font-weight:800">📊 Excel com fotos</button></div></div>
       <input id="classExcelInput" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none" onchange="importStudentsExcel(this.files[0]);this.value=''">
       <div class="importExcelHelp small muted"><b>Planilha completa:</b> o sistema reconhece Nº, Nome, Turma/Série e fotos embutidas no Excel. Também entende o padrão <b>9ºB - 30. Nome do aluno</b>. Se a planilha tiver várias turmas, todas podem ser importadas de uma só vez.</div>
       <div id="classImportStatus" class="importProgress"></div>
@@ -1394,6 +1394,75 @@ function downloadStudentCredentials(turma=""){
     toast(`Planilha de credenciais gerada${turma?` para ${turma}`:" para todas as turmas"}.`);
   }catch(err){console.error(err);toast("Não foi possível gerar a planilha de credenciais.")}
 }
+
+function safeExportName(value){return String(value||'Todas_as_Turmas').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'')||'Alunos'}
+function exportStudentsForClass(turma=''){
+  return (db.students||[]).filter(s=>!turma||s.turma===turma).sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+}
+function loadExternalScriptOnce(src,test){
+  if(test())return Promise.resolve();
+  return new Promise((resolve,reject)=>{
+    const existing=[...document.scripts].find(x=>x.src===src);
+    if(existing){existing.addEventListener('load',()=>test()?resolve():reject(new Error('Biblioteca não iniciou.')),{once:true});existing.addEventListener('error',()=>reject(new Error('Falha ao carregar biblioteca.')),{once:true});return}
+    const sc=document.createElement('script');sc.src=src;sc.async=true;sc.onload=()=>test()?resolve():reject(new Error('Biblioteca não iniciou.'));sc.onerror=()=>reject(new Error('Falha ao carregar biblioteca.'));document.head.appendChild(sc);
+  });
+}
+async function studentPhotoBlobForExport(st){
+  try{const key=st?.photoKey||profilePhotoKey(st?.login||'');return await getFileBlob(key,!!st?.photoKey)}catch(err){console.warn('Foto indisponível para exportação',st?.nome,err);return null}
+}
+function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(r.error||new Error('Falha ao ler imagem'));r.readAsDataURL(blob)})}
+async function exportStudentsWordWithPhotos(turma=''){
+  const students=exportStudentsForClass(turma);if(!students.length)return toast('Não há alunos cadastrados para gerar o Word.');
+  const btnText='Gerando Word com fotos...';toast(btnText);
+  try{
+    await loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/docx@9.5.1/dist/index.umd.cjs',()=>!!window.docx).catch(async()=>loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/docx@9.5.1/build/index.umd.js',()=>!!window.docx));
+    const D=window.docx;if(!D)throw new Error('Gerador de Word indisponível.');
+    const {Document,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,AlignmentType,VerticalAlign,HeadingLevel,Packer}=D;
+    const rows=[];
+    rows.push(new TableRow({tableHeader:true,children:[
+      new TableCell({width:{size:1200,type:WidthType.DXA},children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Foto',bold:true})]})]}),
+      new TableCell({width:{size:700,type:WidthType.DXA},children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Nº',bold:true})]})]}),
+      new TableCell({width:{size:3300,type:WidthType.DXA},children:[new Paragraph({children:[new TextRun({text:'Aluno',bold:true})]})]}),
+      new TableCell({width:{size:1500,type:WidthType.DXA},children:[new Paragraph({children:[new TextRun({text:'Turma',bold:true})]})]}),
+      new TableCell({width:{size:1800,type:WidthType.DXA},children:[new Paragraph({children:[new TextRun({text:'Login',bold:true})]})]}),
+      new TableCell({width:{size:1200,type:WidthType.DXA},children:[new Paragraph({children:[new TextRun({text:'Senha',bold:true})]})]})
+    ]}));
+    for(const st of students){
+      const photo=await studentPhotoBlobForExport(st);let photoChildren=[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Sem foto',size:16})]})];
+      if(photo){const bytes=new Uint8Array(await photo.arrayBuffer());photoChildren=[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:bytes,transformation:{width:58,height:58},type:'jpg'})]})]}
+      rows.push(new TableRow({children:[
+        new TableCell({verticalAlign:VerticalAlign.CENTER,children:photoChildren}),
+        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,text:String(st.chamada||'')})]}),
+        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({text:String(st.nome||'')})]}),
+        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({text:String(st.turma||'')})]}),
+        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({text:String(st.login||'')})]}),
+        new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({text:String(st.senha||'')})]})
+      ]}));
+    }
+    const title=turma?`Relação de Alunos — ${turma}`:'Relação de Alunos — Todas as Turmas';
+    const doc=new Document({sections:[{properties:{},children:[new Paragraph({text:title,heading:HeadingLevel.HEADING_1,alignment:AlignmentType.CENTER}),new Paragraph({text:`${students.length} aluno(s)`,alignment:AlignmentType.CENTER}),new Table({width:{size:100,type:WidthType.PERCENTAGE},rows})]}]});
+    const blob=await Packer.toBlob(doc),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Alunos_${safeExportName(turma)}_com_fotos.docx`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500);toast('Word com fotos gerado com sucesso.');
+  }catch(err){console.error(err);toast('Não foi possível gerar o Word com fotos. Verifique a internet e tente novamente.');}
+}
+async function exportStudentsExcelWithPhotos(turma=''){
+  const students=exportStudentsForClass(turma);if(!students.length)return toast('Não há alunos cadastrados para gerar o Excel.');toast('Gerando Excel com fotos...');
+  try{
+    await loadExternalScriptOnce('https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js',()=>!!window.ExcelJS);
+    const wb=new ExcelJS.Workbook(),ws=wb.addWorksheet(turma||'Alunos');
+    ws.columns=[{header:'Foto',key:'foto',width:12},{header:'Nº',key:'chamada',width:8},{header:'Aluno',key:'nome',width:38},{header:'Turma',key:'turma',width:16},{header:'Login',key:'login',width:24},{header:'Senha',key:'senha',width:14}];
+    ws.getRow(1).font={bold:true};ws.getRow(1).alignment={vertical:'middle',horizontal:'center'};ws.getRow(1).height=24;ws.views=[{state:'frozen',ySplit:1}];
+    let r=2;
+    for(const st of students){
+      ws.addRow({foto:'',chamada:Number(st.chamada)||'',nome:st.nome||'',turma:st.turma||'',login:st.login||'',senha:String(st.senha||'')});ws.getRow(r).height=52;ws.getRow(r).alignment={vertical:'middle'};
+      const photo=await studentPhotoBlobForExport(st);
+      if(photo){const dataUrl=await blobToDataUrl(photo),imageId=wb.addImage({base64:dataUrl,extension:'jpeg'});ws.addImage(imageId,{tl:{col:0.15,row:r-0.88},ext:{width:58,height:58},editAs:'oneCell'});}else ws.getCell(r,1).value='Sem foto';
+      r++;
+    }
+    ws.autoFilter={from:'B1',to:'F1'};
+    const buf=await wb.xlsx.writeBuffer(),blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Alunos_${safeExportName(turma)}_com_fotos.xlsx`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500);toast('Excel com fotos gerado com sucesso.');
+  }catch(err){console.error(err);toast('Não foi possível gerar o Excel com fotos. Verifique a internet e tente novamente.');}
+}
+
 async function classSaveStudent(){
   const chamada=parseInt(byId("classCall").value,10),turma=byId("classTurma").value,nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
   if(!chamada||chamada<1||!nome||!turma)return toast("Preencha nome, número de chamada e turma.");
