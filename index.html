@@ -1416,7 +1416,7 @@ async function exportStudentsWordWithPhotos(turma=''){
   if(!students.length){toast('Nenhum aluno encontrado para gerar o Word.');return;}
   toast('Gerando Word com fotos...');
   try{
-    const docxLib=await import('https://esm.sh/docx@9.7.1');
+    const docxLib=await import('https://cdn.jsdelivr.net/npm/docx@9.7.1/+esm');
     const {Document,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,AlignmentType,VerticalAlign,HeadingLevel,Packer}=docxLib;
     const rows=[];
     const header=['Foto','Nº','Aluno','Turma','Login','Senha'].map(txt=>new TableCell({
@@ -1430,7 +1430,7 @@ async function exportStudentsWordWithPhotos(turma=''){
         const blob=await studentPhotoBlobForExport(st);
         if(blob){
           const bytes=new Uint8Array(await blob.arrayBuffer());
-          photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:bytes,transformation:{width:58,height:58}})]})]});
+          photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({type:'jpg',data:bytes,transformation:{width:58,height:58}})]})]});
         }
       }catch(e){console.warn('Foto não carregada no Word:',st?.name,e);}
       if(!photoCell) photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun('Sem foto')]})]});
