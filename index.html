@@ -2199,13 +2199,22 @@ function openReportEditor(type){
 function chooseIndividualReport(){
  const students=db.students.filter(s=>s.turma===S.cls&&String(s.status||'Ativo').toLowerCase()!=='transf.').sort((a,b)=>Number(a.chamada||999)-Number(b.chamada||999));
  if(!students.length){toast('Nenhum aluno ativo encontrado nesta turma.');return;}
- page.innerHTML=`<a class="back" href="#" onclick="go('reports');return false">← Relatórios</a><h1 class="center">Selecionar aluno</h1><p class="sub">Escolha o aluno para criar ou editar o relatório individual do ${S.reportBimester}º bimestre/${S.reportYear}.</p><div class="panel"><div class="reportStudentGrid">${students.map(st=>`<button type="button" class="reportStudentPick" style="width:100%;text-align:left;cursor:pointer" onclick="selectIndividualReport('${e(st.login)}')"><span class="avatar" data-photo-login="${e(st.login)}">${e((st.nome||'?')[0])}</span><span><b>${String(st.chamada||'').padStart(2,'0')} - ${e(st.nome)}</b><br><small class="muted">${e(st.turma)}</small></span></button>`).join('')}</div></div>`;
+ page.innerHTML=`<a class="back" href="#" onclick="go('reports');return false">← Relatórios</a><h1 class="center">Selecionar aluno</h1><p class="sub">Escolha o aluno para criar ou editar o relatório individual do ${S.reportBimester}º bimestre/${S.reportYear}.</p><div class="panel"><div class="reportStudentGrid">${students.map(st=>`<button type="button" class="reportStudentPick" data-report-login="${encodeURIComponent(st.login)}" style="width:100%;text-align:left;cursor:pointer;touch-action:manipulation"><span class="avatar" data-photo-login="${e(st.login)}">${e((st.nome||'?')[0])}</span><span><b>${String(st.chamada||'').padStart(2,'0')} - ${e(st.nome)}</b><br><small class="muted">${e(st.turma)}</small></span></button>`).join('')}</div></div>`;
+ document.querySelectorAll('[data-report-login]').forEach(btn=>{
+   const open=()=>selectIndividualReport(decodeURIComponent(btn.dataset.reportLogin||''));
+   btn.addEventListener('click',open,{passive:true});
+ });
  setTimeout(loadVisibleStudentPhotos,0);
 }
 function selectIndividualReport(login){
- const existing=reportFind('individual',login);
- if(existing)return editReportById(existing.id);
- S.reportId=null;S.reportType='individual';S.reportStudent=login;go('reportEditor');
+ try{
+  login=String(login||'');
+  const st=(db.students||[]).find(x=>x.login===login);
+  if(!st)return toast('Aluno não encontrado.');
+  const existing=reportFind('individual',login);
+  if(existing)return editReportById(existing.id);
+  S.reportId=null;S.reportType='individual';S.reportStudent=login;S.cls=st.turma||S.cls;go('reportEditor');
+ }catch(err){console.error('Falha ao abrir relatório individual',err);toast('Não foi possível abrir o relatório individual: '+(err?.message||err));}
 }
 function editReportById(id){const r=(db.reports||[]).find(x=>String(x.id)===String(id));if(!r)return toast('Relatório não encontrado.');S.reportId=r.id;S.reportType=r.tipo;S.reportStudent=r.studentLogin||'';S.cls=r.turma;S.reportYear=Number(r.ano);S.reportBimester=Number(r.bimestre);go('reportEditor')}
 function deleteReportById(id){const r=(db.reports||[]).find(x=>String(x.id)===String(id));if(!r)return toast('Relatório não encontrado.');const nome=r.tipo==='turma'?'Relatório da Turma':(r.studentName||'Relatório Individual');if(!confirm(`Excluir ${nome}? Esta ação não pode ser desfeita.`))return;db.reports=(db.reports||[]).filter(x=>String(x.id)!==String(id));if(String(S.reportId)===String(id))S.reportId=null;persist();toast('Relatório excluído.');reports()}
