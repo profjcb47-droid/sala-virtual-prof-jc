@@ -2310,6 +2310,18 @@ async function exportOccurrenceWord(id){
 }
 function reportStudentPicker(field,selected=[]){const list=db.students.filter(s=>s.turma===S.cls).sort((a,b)=>Number(a.chamada)-Number(b.chamada));return `<div class="reportCheckActions"><button type="button" class="secondary" onclick="reportToggleChecks('${field}',true)">Marcar todos</button><button type="button" class="secondary" onclick="reportToggleChecks('${field}',false)">Limpar</button></div><div class="reportStudentGrid">${list.map(st=>`<label class="reportStudentPick"><input type="checkbox" data-report-field="${field}" value="${e(st.login)}" ${selected.includes(st.login)?'checked':''}><div class="avatar" id="rp_${field}_${e(st.login)}" data-photo-login="${e(st.login)}">${e((st.nome||'?')[0])}</div><span>${String(st.chamada||'').padStart(2,'0')}. ${e(st.nome)}</span></label>`).join('')}</div>`}
 function reportToggleChecks(field,on){document.querySelectorAll(`[data-report-field="${field}"]`).forEach(x=>x.checked=on)}
+const REPORT_ACTIONS=[
+ 'Dinâmicas de perguntas e respostas',
+ 'Reorganização do ambiente',
+ 'Acompanhamento individual',
+ 'Reforço disciplinar',
+ 'Solução de exercícios (Revisa Goiás e listas)',
+ 'Vistos das atividades',
+ 'Explicações individualizadas',
+ 'Atividades de reforço e revisão de conteúdos básicos',
+ 'Incentivo à participação e ao comprometimento com as tarefas',
+ 'Orientações à família quanto ao acompanhamento das atividades escolares'
+];
 function reportEditor(){
  let r=S.reportId?(db.reports||[]).find(x=>String(x.id)===String(S.reportId)):reportFind(S.reportType,S.reportStudent);if(r){S.reportType=r.tipo;S.reportStudent=r.studentLogin||'';S.cls=r.turma;S.reportYear=r.ano;S.reportBimester=r.bimestre}
  const d=r?.data||{}, st=S.reportType==='individual'?db.students.find(x=>x.login===S.reportStudent):null;
