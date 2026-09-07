@@ -2281,6 +2281,10 @@ function wordRichParagraphXml(parts=[],opts={}){const {align='',before=0,after=1
 function wordBodyXml(text){const parts=String(text||'—').split(/\n+/).map(x=>x.trim()).filter(Boolean);return (parts.length?parts:['—']).map(t=>wordParagraphXml(t,{align:'both',firstLine:720,line:360,after:120,size:22})).join('')}
 function wordLinesXml(lines,{bullet=false}={}){const arr=(lines||[]).filter(Boolean);return (arr.length?arr:['—']).map(t=>wordParagraphXml((bullet?'• ':'')+t,{align:'both',after:70,size:22})).join('')}
 function wordHeadingXml(text){return wordParagraphXml(text,{bold:true,size:22,before:220,after:100})}
+function wordBoxXml(innerXml){const tcMar='<w:tcMar><w:top w:w="90" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="90" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>';const borders='<w:tcBorders><w:top w:val="single" w:sz="8" w:space="0" w:color="808080"/><w:left w:val="single" w:sz="8" w:space="0" w:color="808080"/><w:bottom w:val="single" w:sz="8" w:space="0" w:color="808080"/><w:right w:val="single" w:sz="8" w:space="0" w:color="808080"/></w:tcBorders>';return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid><w:gridCol w:w="9400"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="9400" w:type="dxa"/>${tcMar}${borders}</w:tcPr>${innerXml}</w:tc></w:tr></w:tbl>${wordParagraphXml('',{after:40,size:2})}`}
+function wordBoxBodyXml(text){return wordBoxXml(wordBodyXml(text))}
+function wordBoxLinesXml(lines,opts={}){return wordBoxXml(wordLinesXml(lines,opts))}
+function wordBoxCombinedXml(text,lines,opts={}){return wordBoxXml(wordBodyXml(text)+wordLinesXml(lines,opts))}
 function wordImageXml(){return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="685800" cy="600075"/><wp:docPr id="1" name="Logotipo da escola"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="logo.jpg"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="685800" cy="600075"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`}
 function wordHeaderXml(){const cellBorder='<w:tcBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders>';const headerText=`<w:p><w:pPr><w:jc w:val="left"/><w:spacing w:before="0" w:after="0" w:line="220" w:lineRule="auto"/></w:pPr>${wordRunXml('CENTRO DE ENSINO EM PERÍODO INTEGRAL JARDIM TIRADENTES',{bold:true,size:20})}<w:r><w:br/></w:r>${wordRunXml('COORDENAÇÃO REGIONAL DE APARECIDA – CRE',{size:19})}<w:r><w:br/></w:r>${wordRunXml('SECRETARIA DE ESTADO DA EDUCAÇÃO DE GOIÁS',{size:19})}</w:p>`;return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="1450"/><w:gridCol w:w="7950"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="1450" w:type="dxa"/>${cellBorder}<w:vAlign w:val="center"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="0" w:after="0"/></w:pPr>${wordImageXml()}</w:p></w:tc><w:tc><w:tcPr><w:tcW w:w="7950" w:type="dxa"/>${cellBorder}<w:vAlign w:val="center"/></w:tcPr>${headerText}</w:tc></w:tr></w:tbl>`}
 function wordSignaturesXml(){return `<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/><w:insideH w:val="nil"/><w:insideV w:val="nil"/></w:tblBorders></w:tblPr><w:tblGrid><w:gridCol w:w="4700"/><w:gridCol w:w="4700"/></w:tblGrid><w:tr><w:tc><w:tcPr><w:tcW w:w="4700" w:type="dxa"/></w:tcPr>${wordParagraphXml('___________________________________________',{align:'center',size:20,before:700,after:0})}${wordParagraphXml('Assinatura do(a) Professor(a)',{align:'center',size:20,after:0})}</w:tc><w:tc><w:tcPr><w:tcW w:w="4700" w:type="dxa"/></w:tcPr>${wordParagraphXml('___________________________________________',{align:'center',size:20,before:700,after:0})}${wordParagraphXml('Assinatura do(a) Coordenador(a)',{align:'center',size:20,after:0})}</w:tc></w:tr></w:tbl>`}
@@ -2313,10 +2317,10 @@ async function exportOccurrenceWord(id){
   xml+=wordRichParagraphXml([{text:'Bimestre: ',bold:true,size:22},{text:`${o.bimestre}º Bimestre/${o.ano}`,size:22}],{after:80});
   xml+=wordRichParagraphXml([{text:'Data da ocorrência: ',bold:true,size:22},{text:dateFmt,size:22}],{after:80});
   xml+=wordRichParagraphXml([{text:'Modalidade de Ensino: ',bold:true,size:22},{text:'Ensino Fundamental Anos Finais',size:22}],{after:100});
-  xml+=wordHeadingXml('Aluno(s):')+wordLinesXml(studentLines);
-  xml+=wordHeadingXml('Tipo(s) de ocorrência:')+wordLinesXml(types,{bullet:true});
-  xml+=wordHeadingXml('Descrição / Observação')+wordBodyXml(o.observation);
-  xml+=wordHeadingXml('Providências / Orientações adotadas')+wordBodyXml(o.actions);
+  xml+=wordHeadingXml('Aluno(s):')+wordBoxLinesXml(studentLines);
+  xml+=wordHeadingXml('Tipo(s) de ocorrência:')+wordBoxLinesXml(types,{bullet:true});
+  xml+=wordHeadingXml('Descrição / Observação')+wordBoxBodyXml(o.observation);
+  xml+=wordHeadingXml('Providências / Orientações adotadas')+wordBoxBodyXml(o.actions);
   xml+=wordParagraphXml(`Aparecida de Goiânia, ${dateLong}.`,{align:'right',size:22,before:360,after:520});
   xml+=wordSignaturesXml();
   const blob=await buildNativeWordDocx(xml,'Registro de Ocorrência e Acompanhamento');
@@ -2366,23 +2370,23 @@ async function exportCurrentReportWord(){
    xml+=wordParagraphXml(`RELATÓRIO GERAL DA TURMA / ${r.bimestre}º BIMESTRE/${r.ano}`,{align:'center',bold:true,size:24,before:220,after:220});
    xml+=wordRichParagraphXml([{text:'Série/turma: ',bold:true,size:22},{text:r.turma,size:22},{text:'    Professor: ',bold:true,size:22},{text:'Junio Cesar',size:22}],{after:80});
    xml+=wordRichParagraphXml([{text:'Modalidade de Ensino: ',bold:true,size:22},{text:'Ensino Fundamental Anos Finais',size:22}],{after:100});
-   xml+=wordHeadingXml('1. Perfil da turma')+wordBodyXml(d.profile);
-   xml+=wordHeadingXml('2. Aspectos comportamentais')+wordBodyXml(d.behaviorText)+wordLinesXml(reportNamesText(d.behavior).split('\n'));
-   xml+=wordHeadingXml('3. Dificuldades de aprendizagem')+wordBodyXml(d.difficultyText)+wordLinesXml(reportNamesText(d.difficulty).split('\n'));
-   xml+=wordHeadingXml('4. Ações e intervenções pedagógicas')+wordLinesXml([...(d.actions||[]),...(d.otherActions?[d.otherActions]:[])],{bullet:true});
-   xml+=wordHeadingXml('5. Alunos destaque')+wordBodyXml(d.highlightText)+wordLinesXml(reportNamesText(d.highlights).split('\n'));
+   xml+=wordHeadingXml('1. Perfil da turma')+wordBoxBodyXml(d.profile);
+   xml+=wordHeadingXml('2. Aspectos comportamentais')+wordBoxCombinedXml(d.behaviorText,reportNamesText(d.behavior).split('\n'));
+   xml+=wordHeadingXml('3. Dificuldades de aprendizagem')+wordBoxCombinedXml(d.difficultyText,reportNamesText(d.difficulty).split('\n'));
+   xml+=wordHeadingXml('4. Ações e intervenções pedagógicas')+wordBoxLinesXml([...(d.actions||[]),...(d.otherActions?[d.otherActions]:[])],{bullet:true});
+   xml+=wordHeadingXml('5. Alunos destaque')+wordBoxCombinedXml(d.highlightText,reportNamesText(d.highlights).split('\n'));
   }else{
    xml+=wordParagraphXml('RELATÓRIO DESCRITIVO DO DESEMPENHO E COMPORTAMENTO DO(A) ALUNO(A)',{align:'center',bold:true,size:24,before:220,after:220});
    xml+=wordRichParagraphXml([{text:'Aluno(a): ',bold:true,size:22},{text:st?.nome||r.studentName||'',size:22}],{after:80});
    xml+=wordRichParagraphXml([{text:'Série/turma: ',bold:true,size:22},{text:r.turma,size:22},{text:'    Professor: ',bold:true,size:22},{text:'Junio Cesar',size:22}],{after:80});
    xml+=wordRichParagraphXml([{text:'Bimestre: ',bold:true,size:22},{text:`${r.bimestre}º Bimestre/${r.ano}`,size:22}],{after:80});
    xml+=wordRichParagraphXml([{text:'Modalidade de Ensino: ',bold:true,size:22},{text:'Ensino Fundamental Anos Finais',size:22}],{after:100});
-   xml+=wordHeadingXml('1. Comportamento e atenção em sala de aula')+wordBodyXml(d.behavior);
-   xml+=wordHeadingXml('2. Participação e desempenho')+wordBodyXml(d.performance);
-   xml+=wordHeadingXml('3. Dificuldades observadas')+wordBodyXml(d.difficulties);
-   xml+=wordHeadingXml('4. Estratégias e intervenções realizadas')+wordLinesXml([...(d.actions||[]),...(d.otherActions?[d.otherActions]:[])],{bullet:true});
-   xml+=wordHeadingXml('5. Evolução observada')+wordBodyXml(d.evolution);
-   xml+=wordHeadingXml('6. Considerações e encaminhamentos')+wordBodyXml(d.final);
+   xml+=wordHeadingXml('1. Comportamento e atenção em sala de aula')+wordBoxBodyXml(d.behavior);
+   xml+=wordHeadingXml('2. Participação e desempenho')+wordBoxBodyXml(d.performance);
+   xml+=wordHeadingXml('3. Dificuldades observadas')+wordBoxBodyXml(d.difficulties);
+   xml+=wordHeadingXml('4. Estratégias e intervenções realizadas')+wordBoxLinesXml([...(d.actions||[]),...(d.otherActions?[d.otherActions]:[])],{bullet:true});
+   xml+=wordHeadingXml('5. Evolução observada')+wordBoxBodyXml(d.evolution);
+   xml+=wordHeadingXml('6. Considerações e encaminhamentos')+wordBoxBodyXml(d.final);
   }
   xml+=wordParagraphXml(`Aparecida de Goiânia, ${date}.`,{align:'right',size:22,before:360,after:520});
   xml+=wordSignaturesXml();
