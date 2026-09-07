@@ -778,7 +778,7 @@ async function assignStudentPhoto(st,file){
 }
 async function loadProfilePhoto(login,targetId){try{const st=db.students.find(x=>x.login===login);const key=st?.photoKey||profilePhotoKey(login);const blob=await getFileBlob(key,!!st?.photoKey);const el=byId(targetId);if(!blob||!el)return;if(el.dataset.photoUrl){try{URL.revokeObjectURL(el.dataset.photoUrl)}catch{}}const url=URL.createObjectURL(blob);el.innerHTML=`<img src="${url}" alt="Foto do aluno">`;el.classList.add('profileReady');el.dataset.photoUrl=url}catch(err){console.warn(err)}}
 function studentQrLabel(st){if(!st)return '';const raw=String(st.turma||'').replace(/°/g,'º'),m=raw.match(/(\d+).*?([A-Za-z])\s*$/),turma=m?`${m[1]}º${m[2].toUpperCase()}`:raw.replace(/\s+/g,'');const n=String(Number(st.chamada)||st.chamada||'').padStart(2,'0');return `${turma} - ${n}. ${st.nome||''}`.trim()}
-function loadVisibleStudentPhotos(){document.querySelectorAll('[data-photo-login]').forEach(el=>loadProfilePhoto(el.dataset.photoLogin,el.id))}
+function loadVisibleStudentPhotos(){document.querySelectorAll('[data-photo-login]').forEach((el,i)=>{if(!el.id)el.id='studentPhoto_'+i+'_'+Math.random().toString(36).slice(2,8);loadProfilePhoto(el.dataset.photoLogin,el.id)})}
 function setClassStudentsView(mode){S.classStudentsView=mode==='photos'?'photos':'list';classStudentsPage()}
 async function openStudentPhotoLightbox(encodedLogin){
  const login=decodeURIComponent(encodedLogin),st=db.students.find(x=>x.login===login);if(!st)return toast('Aluno não encontrado.');
