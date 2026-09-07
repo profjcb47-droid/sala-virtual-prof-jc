@@ -1420,6 +1420,18 @@ async function studentPhotoBlobForExport(st){
   try{const key=st?.photoKey||profilePhotoKey(st?.login||'');return await getFileBlob(key,!!st?.photoKey)}catch(err){console.warn('Foto indisponível para exportação',st?.nome,err);return null}
 }
 function blobToDataUrl(blob){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(String(r.result||''));r.onerror=()=>reject(r.error||new Error('Falha ao ler imagem'));r.readAsDataURL(blob)})}
+async function validateDocxBlob(blob){
+  if(!blob||blob.size<500)return false;
+  try{
+    if(!window.JSZip)await loadExternalScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',()=>!!window.JSZip);
+    const z=await JSZip.loadAsync(await blob.arrayBuffer());
+    return !!(z.file('[Content_Types].xml')&&z.file('_rels/.rels')&&z.file('word/document.xml')&&z.file('word/_rels/document.xml.rels'));
+  }catch(err){console.error('DOCX inválido:',err);return false}
+}
+async function downloadValidDocx(blob,fileName){
+  if(!(await validateDocxBlob(blob)))throw new Error('O arquivo Word gerado não passou na verificação de integridade.');
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=fileName;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2500);
+}
 async function exportStudentsWordWithPhotos(turma=''){
   const students=exportStudentsForClass(turma);
   if(!students.length){toast('Nenhum aluno encontrado para gerar o Word.');return;}
@@ -1439,7 +1451,7 @@ async function exportStudentsWordWithPhotos(turma=''){
         const blob=await studentPhotoBlobForExport(st);
         if(blob){
           const bytes=new Uint8Array(await blob.arrayBuffer());
-          photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:bytes,transformation:{width:58,height:58}})]})]});
+          const imageType=/png/i.test(blob.type)?'png':/gif/i.test(blob.type)?'gif':'jpg';photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:bytes,type:imageType,transformation:{width:58,height:58}})]})]});
         }
       }catch(e){console.warn('Foto não carregada no Word:',st?.name,e);}
       if(!photoCell) photoCell=new TableCell({verticalAlign:VerticalAlign.CENTER,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun('Sem foto')]})]});
@@ -1462,12 +1474,7 @@ async function exportStudentsWordWithPhotos(turma=''){
       new Table({width:{size:100,type:WidthType.PERCENTAGE},rows})
     ]}]});
     const blob=await Packer.toBlob(doc);
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download=`Alunos_${safeExportName(titleTurma)}_com_fotos.docx`;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);
+    await downloadValidDocx(blob,`Alunos_${safeExportName(titleTurma)}_com_fotos.docx`);
     toast('Word com fotos gerado com sucesso.');
   }catch(err){
     console.error('Erro ao gerar Word com fotos:',err);
@@ -2237,7 +2244,7 @@ async function exportOccurrenceWord(id){
   const {Document,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,AlignmentType,VerticalAlign,Packer,BorderStyle,PageOrientation}=docxLib;
   const noBorders={top:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},bottom:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},left:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},right:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},insideHorizontal:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},insideVertical:{style:BorderStyle.NONE,size:0,color:'FFFFFF'}};
   const logoBytes=reportDataUrlBytes(LOGO);
-  const headerTable=new Table({width:{size:100,type:WidthType.PERCENTAGE},borders:noBorders,rows:[new TableRow({children:[new TableCell({width:{size:18,type:WidthType.PERCENTAGE},verticalAlign:VerticalAlign.CENTER,borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:logoBytes,transformation:{width:72,height:72}})]})]}),new TableCell({width:{size:82,type:WidthType.PERCENTAGE},verticalAlign:VerticalAlign.CENTER,borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:0},children:[new TextRun({text:'CENTRO DE ENSINO EM PERÍODO INTEGRAL JARDIM TIRADENTES',bold:true,size:22})]}),new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:0},children:[new TextRun({text:'COORDENAÇÃO REGIONAL DE APARECIDA – CRE',size:20})]}),new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'SECRETARIA DE ESTADO DA EDUCAÇÃO DE GOIÁS',size:20})]})]})]})]});
+  const headerTable=new Table({width:{size:100,type:WidthType.PERCENTAGE},borders:noBorders,rows:[new TableRow({children:[new TableCell({width:{size:18,type:WidthType.PERCENTAGE},verticalAlign:VerticalAlign.CENTER,borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:logoBytes,type:'jpg',transformation:{width:72,height:72}})]})]}),new TableCell({width:{size:82,type:WidthType.PERCENTAGE},verticalAlign:VerticalAlign.CENTER,borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:0},children:[new TextRun({text:'CENTRO DE ENSINO EM PERÍODO INTEGRAL JARDIM TIRADENTES',bold:true,size:22})]}),new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:0},children:[new TextRun({text:'COORDENAÇÃO REGIONAL DE APARECIDA – CRE',size:20})]}),new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'SECRETARIA DE ESTADO DA EDUCAÇÃO DE GOIÁS',size:20})]})]})]})]});
   const title=new Paragraph({alignment:AlignmentType.CENTER,spacing:{before:220,after:220},children:[new TextRun({text:'REGISTRO DE OCORRÊNCIA E ACOMPANHAMENTO DO(A) ALUNO(A)',bold:true,size:24})]});
   const p=(label,text)=>new Paragraph({alignment:AlignmentType.JUSTIFIED,spacing:{after:100},children:[new TextRun({text:label,bold:true,size:22}),new TextRun({text:String(text||'—'),size:22})]});
   const body=(label,text)=>[new Paragraph({spacing:{before:220,after:100},children:[new TextRun({text:label,bold:true,size:22})]}),...String(text||'—').split(/\n+/).map(t=>new Paragraph({alignment:AlignmentType.JUSTIFIED,indent:{firstLine:720},spacing:{line:360,after:120},children:[new TextRun({text:t||'—',size:22})]}))];
@@ -2248,7 +2255,7 @@ async function exportOccurrenceWord(id){
   const dateLong=o.date?new Date(o.date+'T12:00:00').toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'}):new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'});
   const children=[headerTable,title,p('Turma: ',o.turma),p('Professor: ',o.professor||'Junio Cesar'),p('Bimestre: ',`${o.bimestre}º Bimestre/${o.ano}`),p('Data da ocorrência: ',dateFmt),p('Modalidade de Ensino: ','Ensino Fundamental Anos Finais'),new Paragraph({spacing:{before:220,after:100},children:[new TextRun({text:'Aluno(s):',bold:true,size:22})]}),...studentLines.map(t=>new Paragraph({spacing:{after:40},children:[new TextRun({text:t,size:22})]})),new Paragraph({spacing:{before:220,after:100},children:[new TextRun({text:'Tipo(s) de ocorrência:',bold:true,size:22})]}),...types.map(t=>new Paragraph({bullet:{level:0},children:[new TextRun({text:t,size:22})]})),...body('Descrição / Observação',o.observation),...body('Providências / Orientações adotadas',o.actions),new Paragraph({alignment:AlignmentType.RIGHT,spacing:{before:360,after:520},children:[new TextRun({text:`Aparecida de Goiânia, ${dateLong}.`,size:22})]}),new Table({width:{size:100,type:WidthType.PERCENTAGE},borders:noBorders,rows:[new TableRow({children:[new TableCell({width:{size:48,type:WidthType.PERCENTAGE},borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,spacing:{before:700},children:[new TextRun({text:'___________________________________________',size:20})]}),new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Assinatura do(a) Professor(a)',size:20})]})]}),new TableCell({width:{size:4,type:WidthType.PERCENTAGE},borders:noBorders,children:[new Paragraph('')]}),new TableCell({width:{size:48,type:WidthType.PERCENTAGE},borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,spacing:{before:700},children:[new TextRun({text:'___________________________________________',size:20})]}),new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Assinatura do(a) Coordenador(a)',size:20})]})]})]})]})];
   const doc=new Document({styles:{default:{document:{run:{font:'Arial',size:22},paragraph:{spacing:{after:100}}}}},sections:[{properties:{page:{size:{width:11906,height:16838,orientation:PageOrientation.PORTRAIT},margin:{top:850,right:850,bottom:850,left:850}}},children}]});
-  const blob=await Packer.toBlob(doc),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`Ocorrencia_${safeExportName(o.turma)}_${o.bimestre}Bimestre_${o.ano}.docx`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);toast('Ocorrência em Word gerada com sucesso.');
+  const blob=await Packer.toBlob(doc);await downloadValidDocx(blob,`Ocorrencia_${safeExportName(o.turma)}_${o.bimestre}Bimestre_${o.ano}.docx`);toast('Ocorrência em Word gerada com sucesso.');
  }catch(err){console.error(err);toast('Não foi possível gerar a ocorrência em Word.');alert('Não foi possível gerar a ocorrência em Word.\n\nDetalhes: '+(err?.message||err))}
 }
 function reportStudentPicker(field,selected=[]){const list=db.students.filter(s=>s.turma===S.cls).sort((a,b)=>Number(a.chamada)-Number(b.chamada));return `<div class="reportCheckActions"><button type="button" class="secondary" onclick="reportToggleChecks('${field}',true)">Marcar todos</button><button type="button" class="secondary" onclick="reportToggleChecks('${field}',false)">Limpar</button></div><div class="reportStudentGrid">${list.map(st=>`<label class="reportStudentPick"><input type="checkbox" data-report-field="${field}" value="${e(st.login)}" ${selected.includes(st.login)?'checked':''}><div class="avatar" id="rp_${field}_${e(st.login)}" data-photo-login="${e(st.login)}">${e((st.nome||'?')[0])}</div><span>${String(st.chamada||'').padStart(2,'0')}. ${e(st.nome)}</span></label>`).join('')}</div>`}
@@ -2282,7 +2289,7 @@ async function exportCurrentReportWord(){
   const noBorders={top:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},bottom:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},left:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},right:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},insideHorizontal:{style:BorderStyle.NONE,size:0,color:'FFFFFF'},insideVertical:{style:BorderStyle.NONE,size:0,color:'FFFFFF'}};
   const logoBytes=reportDataUrlBytes(LOGO);
   const headerTable=new Table({width:{size:100,type:WidthType.PERCENTAGE},borders:noBorders,rows:[new TableRow({children:[
-   new TableCell({width:{size:18,type:WidthType.PERCENTAGE},verticalAlign:VerticalAlign.CENTER,borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:logoBytes,transformation:{width:72,height:72}})]})]}),
+   new TableCell({width:{size:18,type:WidthType.PERCENTAGE},verticalAlign:VerticalAlign.CENTER,borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:logoBytes,type:'jpg',transformation:{width:72,height:72}})]})]}),
    new TableCell({width:{size:82,type:WidthType.PERCENTAGE},verticalAlign:VerticalAlign.CENTER,borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:0},children:[new TextRun({text:'CENTRO DE ENSINO EM PERÍODO INTEGRAL JARDIM TIRADENTES',bold:true,size:22})]}),new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:0},children:[new TextRun({text:'COORDENAÇÃO REGIONAL DE APARECIDA – CRE',size:20})]}),new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'SECRETARIA DE ESTADO DA EDUCAÇÃO DE GOIÁS',size:20})]})]})
   ]})]});
   const title=(text)=>new Paragraph({alignment:AlignmentType.CENTER,spacing:{before:220,after:220},children:[new TextRun({text,bold:true,size:24})]});
@@ -2320,9 +2327,9 @@ async function exportCurrentReportWord(){
    new TableCell({width:{size:48,type:WidthType.PERCENTAGE},borders:noBorders,children:[new Paragraph({alignment:AlignmentType.CENTER,spacing:{before:700},children:[new TextRun({text:'___________________________________________',size:20})]}),new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Assinatura do(a) Coordenador(a)',size:20})]})]})
   ]})]}));
   const doc=new Document({styles:{default:{document:{run:{font:'Arial',size:22},paragraph:{spacing:{after:100}}}}},sections:[{properties:{page:{size:{width:11906,height:16838,orientation:PageOrientation.PORTRAIT},margin:{top:850,right:850,bottom:850,left:850}}},children}]});
-  const blob=await Packer.toBlob(doc),a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  const blob=await Packer.toBlob(doc);
   const who=r.tipo==='turma'?r.turma:(st?.nome||r.studentName||'Aluno');
-  a.download=`Relatorio_${safeExportName(who)}_${r.bimestre}Bimestre_${r.ano}.docx`;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000);toast('Relatório em Word gerado com sucesso.');
+  await downloadValidDocx(blob,`Relatorio_${safeExportName(who)}_${r.bimestre}Bimestre_${r.ano}.docx`);toast('Relatório em Word gerado com sucesso.');
  }catch(err){console.error('Erro ao gerar relatório Word:',err);toast('Não foi possível gerar o relatório em Word.');alert('Não foi possível gerar o relatório em Word.\n\nDetalhes: '+(err?.message||err))}
 }
 function printCurrentReport(){exportCurrentReportWord()}
