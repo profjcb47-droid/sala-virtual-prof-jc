@@ -2135,8 +2135,8 @@ function scheduleSubjectPalette(v){
   const n=normalizeScheduleSubject(v);
   if(!n||n==="—"||n==="-")return {bg:"#f2f5f8",bd:"#d8e0e8",fg:"#66717f"};
   const rules=[
-    {keys:["portugues","port","lingua portuguesa","lp"],bg:"#fff2a8",bd:"#e3c94f",fg:"#5c4a00"},
-    {keys:["matematica","mat","matem"],bg:"#dcebff",bd:"#74aef2",fg:"#064f9e"},
+    {keys:["portugues","port","lingua portuguesa","lp","eo port","e o port","e.o port","e.o. port"],bg:"#fff2a8",bd:"#e3c94f",fg:"#5c4a00"},
+    {keys:["matematica","mat","matem","eo mat","e o mat","e.o mat","e.o. mat"],bg:"#dcebff",bd:"#74aef2",fg:"#064f9e"},
     {keys:["ciencias","ciencia","cien","cie"],bg:"#dcf6e7",bd:"#75c99a",fg:"#17653a"},
     {keys:["historia","hist"],bg:"#ffe3c2",bd:"#e6a75e",fg:"#7b4300"},
     {keys:["geografia","geog","geo"],bg:"#eadfff",bd:"#a98ce7",fg:"#57348f"},
@@ -2144,11 +2144,13 @@ function scheduleSubjectPalette(v){
     {keys:["educacao fisica","ed fisica","edf","ef"],bg:"#ffd9d9",bd:"#e78b8b",fg:"#8a2929"},
     {keys:["artes","arte"],bg:"#ffe0b7",bd:"#e5a45e",fg:"#7b4100"},
     {keys:["ensino religioso","religiao","er"],bg:"#e3e6ff",bd:"#9ca7e8",fg:"#424b91"},
+    {keys:["eletiva"],bg:"#e8f2ff",bd:"#9abbe6",fg:"#294f7a"},
     {keys:["redacao","producao de texto"],bg:"#fff0cc",bd:"#deb76a",fg:"#75520a"}
   ];
   for(const r of rules)if(r.keys.includes(n))return r;
   return {bg:"#eef2f6",bd:"#b9c5d1",fg:"#344456"};
 }
+const SCHEDULE_SUBJECTS=["Artes","Ciências","Eletiva","E.O. Mat.","E.O. Port.","Ed. Física","Geografia","História","Inglês","Matemática","Português"];
 function scheduleSubjectStyle(v){const c=scheduleSubjectPalette(v);return `background:${c.bg};border-color:${c.bd};color:${c.fg}`}
 function paintScheduleSubject(input){if(!input)return;const c=scheduleSubjectPalette(input.value);input.style.backgroundColor=c.bg;input.style.borderColor=c.bd;input.style.color=c.fg}
 function setScheduleSubject(key,input){
@@ -2157,7 +2159,13 @@ function setScheduleSubject(key,input){
   paintScheduleSubject(input);
   persist();
 }
-function schedule(){const cls=S.user.role==="teacher"?S.cls:S.user.turma,days=["Segunda","Terça","Quarta","Quinta","Sexta"],defaults=[["08:00","10:00"],["10:00","12:00"],["13:00","15:00"],["15:00","17:00"],["17:00","19:00"],["19:00","21:00"]];page.innerHTML=`<a class="back" href="#" onclick="go('${S.user.role==="teacher"?"teacher":"student"}');return false">← Início</a><h1 class="center">Horário escolar</h1><p class="sub">${e(cls)}</p>${S.user.role==="teacher"?`<div class="tabs">${CLASSES.map(c=>`<button class="${c===S.cls?"active":""}" onclick="S.cls='${c}';schedule()">${c}</button>`).join("")}</div><div class="notice"><b>Horários editáveis:</b> mantenha ou altere início e fim livremente. Nas disciplinas, <b>digite ou cole</b> o nome/abreviação. Ex.: Port., Mat., Geog., Ciências. A cor aparece automaticamente e será exibida também para o aluno.</div>`:""}<div class="panel tableWrap"><table class="scheduleTable"><thead><tr><th>Horário</th>${days.map(d=>`<th>${d}</th>`).join("")}</tr></thead><tbody>${defaults.map((df,i)=>{const sk=cls+"|slot|"+i,st=db.schedule[sk]||{start:df[0],end:df[1]};return `<tr><td>${S.user.role==="teacher"?`<div class="timeInputs"><input type="time" value="${st.start}" onchange="setSlot('${cls}',${i},'start',this.value)"><input type="time" value="${st.end}" onchange="setSlot('${cls}',${i},'end',this.value)"></div>`:`<b>${st.start}–${st.end}</b>`}</td>${days.map(d=>{const k=cls+"|"+d+"|"+i,v=db.schedule[k]||"—";return `<td>${S.user.role==="teacher"?`<input class="scheduleSubject" type="text" value="${v==="—"?"":e(v)}" placeholder="Disciplina" oninput="paintScheduleSubject(this)" onchange="setScheduleSubject('${k}',this)" onblur="setScheduleSubject('${k}',this)" style="${scheduleSubjectStyle(v)}">`:`<div class="scheduleSubjectCell" style="${scheduleSubjectStyle(v)}">${e(v)}</div>`}</td>`}).join("")}</tr>`}).join("")}</tbody></table></div>`}
+function scheduleSubjectOptions(current){
+  const value=String(current||"—");
+  const base=["—",...SCHEDULE_SUBJECTS];
+  if(value!=="—"&&!base.includes(value))base.push(value);
+  return base.map(x=>`<option value="${e(x)}" ${x===value?'selected':''}>${e(x)}</option>`).join('');
+}
+function schedule(){const cls=S.user.role==="teacher"?S.cls:S.user.turma,days=["Segunda","Terça","Quarta","Quinta","Sexta"],defaults=[["08:00","10:00"],["10:00","12:00"],["13:00","15:00"],["15:00","17:00"],["17:00","19:00"],["19:00","21:00"]];page.innerHTML=`<a class="back" href="#" onclick="go('${S.user.role==="teacher"?"teacher":"student"}');return false">← Início</a><h1 class="center">Horário escolar</h1><p class="sub">${e(cls)}</p>${S.user.role==="teacher"?`<div class="tabs">${CLASSES.map(c=>`<button class="${c===S.cls?"active":""}" onclick="S.cls='${c}';schedule()">${c}</button>`).join("")}</div><div class="notice"><b>Horários editáveis:</b> mantenha ou altere início e fim livremente. Em cada aula, <b>selecione a disciplina</b> na lista. As disciplinas estão em ordem alfabética, a cor aparece automaticamente e será exibida também para o aluno.</div>`:""}<div class="panel tableWrap"><table class="scheduleTable"><thead><tr><th>Horário</th>${days.map(d=>`<th>${d}</th>`).join("")}</tr></thead><tbody>${defaults.map((df,i)=>{const sk=cls+"|slot|"+i,st=db.schedule[sk]||{start:df[0],end:df[1]};return `<tr><td>${S.user.role==="teacher"?`<div class="timeInputs"><input type="time" value="${st.start}" onchange="setSlot('${cls}',${i},'start',this.value)"><input type="time" value="${st.end}" onchange="setSlot('${cls}',${i},'end',this.value)"></div>`:`<b>${st.start}–${st.end}</b>`}</td>${days.map(d=>{const k=cls+"|"+d+"|"+i,v=db.schedule[k]||"—";return `<td>${S.user.role==="teacher"?`<select class="scheduleSubject" onchange="setScheduleSubject('${k}',this)" style="${scheduleSubjectStyle(v)}">${scheduleSubjectOptions(v)}</select>`:`<div class="scheduleSubjectCell" style="${scheduleSubjectStyle(v)}">${e(v)}</div>`}</td>`}).join("")}</tr>`}).join("")}</tbody></table></div>`;if(S.user.role==="teacher")setTimeout(()=>document.querySelectorAll('select.scheduleSubject').forEach(paintScheduleSubject),0)}
 function setSlot(cls,i,k,v){const key=cls+"|slot|"+i,val=db.schedule[key]||{start:"08:00",end:"10:00"};val[k]=v;db.schedule[key]=val;persist();toast("Horário atualizado.")}
 function libraryTypeLabel(item){if(item.kind==='text')return 'Texto';const n=String(item.fileName||'').toLowerCase();if(/\.pdf$/.test(n))return 'PDF';if(/\.(jpg|jpeg|png|webp|gif)$/.test(n))return 'Imagem';if(/\.(doc|docx|odt|rtf)$/.test(n))return 'Documento';return 'Arquivo'}
 function libraryTargetClasses(){const v=byId('libClass')?.value||S.cls;return v==='Todas as Turmas'?['Todas as Turmas']:[v]}
