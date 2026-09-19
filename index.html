@@ -559,6 +559,8 @@ const db={
    impedindo uma cópia incompleta do Supabase de fazê-lo desaparecer novamente. */
 (function ensureOfficialRosterComplete(){
   try{
+    const migrationKey='jc_official_roster_consolidated_v2';
+    if(localStorage.getItem(migrationKey)==='1')return;
     const current=Array.isArray(db.students)?db.students:[];
     const officialSlots=new Set(DEFAULT_STUDENTS.map(st=>`${classCompareKey(st.turma)}::${Number(st.chamada)}`));
     const officialLogins=new Set(DEFAULT_STUDENTS.map(st=>String(st.login||'').toLowerCase()));
@@ -597,6 +599,7 @@ const db={
     localStorage.setItem('jc_students',JSON.stringify(db.students));
     localStorage.setItem('jc_pending_student_slots',JSON.stringify(pending));
     localStorage.setItem('jc_students_pending_sync','1');
+    localStorage.setItem(migrationKey,'1');
   }catch(err){console.error('Falha ao garantir relação oficial completa de alunos',err)}
 })();
 
@@ -1516,7 +1519,6 @@ function restoreOfficialRosterForDisplay(){
   }catch(err){console.error('Falha ao restaurar relação oficial para exibição',err)}
 }
 function classStudentsPage(){
-  restoreOfficialRosterForDisplay();
   repairLegacyCredentialsInClass(S.cls);
   refreshClassesRef();
   if(!CLASSES.includes(S.cls)&&CLASSES.length)S.cls=CLASSES[0];
@@ -1867,9 +1869,26 @@ async function classSaveStudent(){
   Promise.resolve(syncNow(false)).catch(err=>{console.warn("Sincronização do aluno pendente",err);try{localStorage.setItem("jc_students_pending_sync","1")}catch{}});
   if(photoFile){Promise.resolve(assignStudentPhoto(st,photoFile)).then(()=>{persist();Promise.resolve(syncNow(false)).catch(()=>{})}).catch(err=>{console.error("Falha ao salvar foto do aluno",err);toast("Aluno salvo. A foto não foi enviada; você pode adicioná-la depois.")})}
 }
-function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
-function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
-function classDeleteStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;markStudentDeleted(login);db.students=db.students.filter(s=>s.login!==login);persist();toast("Aluno excluído.");classStudentsPage()}
+function resolveManagedStudentByLogin(encodedLogin){
+ const login=decodeURIComponent(encodedLogin);
+ let st=(db.students||[]).find(s=>String(s.login||'')===login);
+ if(st)return st;
+ st=Object.values(pendingStudentSlots()).find(s=>s&&String(s.login||'')===login);
+ if(!st)st=DEFAULT_STUDENTS.find(s=>String(s.login||'')===login);
+ if(!st)return null;
+ st={...st};
+ db.students=(db.students||[]).filter(x=>!(sameClass(x.turma,st.turma)&&Number(x.chamada)===Number(st.chamada)));
+ db.students.push(st);
+ localStorage.setItem('jc_students',JSON.stringify(db.students));
+ rememberPendingStudent(st);
+ return st;
+}
+function removePendingStudent(st){
+ try{const p=pendingStudentSlots();delete p[studentSlotKey(st)];localStorage.setItem('jc_pending_student_slots',JSON.stringify(p))}catch{}
+}
+function setStudentStatus(encodedLogin,status){const st=resolveManagedStudentByLogin(encodedLogin);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';rememberPendingStudent(st);persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
+function classEditStudent(encodedLogin){const st=resolveManagedStudentByLogin(encodedLogin);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
+function classDeleteStudent(encodedLogin){const st=resolveManagedStudentByLogin(encodedLogin);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;markStudentDeleted(st.login);removePendingStudent(st);db.students=(db.students||[]).filter(s=>s.login!==st.login);persist();toast("Aluno excluído.");classStudentsPage()}
 function normalizeHeader(v){return String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª.]/g,"").replace(/[^a-z0-9]+/g," ").trim()}
 function normalizeImportedClass(v){
  const raw=String(v||'').trim();if(!raw)return '';
