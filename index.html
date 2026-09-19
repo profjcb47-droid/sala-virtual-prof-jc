@@ -1408,6 +1408,7 @@ function deleteSelectedClass(){
 }
 
 function classStudentsPage(){
+  repairLegacyCredentialsInClass(S.cls);
   refreshClassesRef();
   if(!CLASSES.includes(S.cls)&&CLASSES.length)S.cls=CLASSES[0];
   if(!S.classStudentsView)S.classStudentsView='list';
@@ -1535,12 +1536,21 @@ function migrateStudentLogin(oldLogin,newLogin){
   markStudentDeleted(oldLogin);unmarkStudentDeleted(newLogin);
 }
 function repairLegacyStudentCredentials(st){
-  if(!st)return;
+  if(!st)return false;
   const legacy=/^9[a-z]\d*$/i.test(String(st.login||''));
-  if(!legacy)return;
+  if(!legacy)return false;
   const old=st.login,newLogin=desiredStudentLogin(st.nome,old);
-  migrateStudentLogin(old,newLogin);st.login=newLogin;
-  st.senha='24'+String(Number(st.chamada)||0).padStart(2,'0');
+  if(!newLogin||newLogin===old)return false;
+  migrateStudentLogin(old,newLogin);
+  st.login=newLogin;
+  // Preserva a senha atual e todos os vínculos do aluno; somente o login legado é corrigido.
+  return true;
+}
+function repairLegacyCredentialsInClass(turma=''){
+  let changed=false;
+  (db.students||[]).forEach(st=>{if((!turma||sameClass(st.turma,turma))&&repairLegacyStudentCredentials(st))changed=true});
+  if(changed)persist();
+  return changed;
 }
 function createInternalStudentCredentials(nome){
   const parts=(nome||"aluno").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").trim().split(/\s+/).filter(Boolean);
@@ -1560,6 +1570,7 @@ function ensureStudentVisibleInClass(st){
 }
 
 function credentialsRowsForClass(turma){
+  repairLegacyCredentialsInClass(turma);
   return (db.students||[])
     .filter(s=>!turma||sameClass(s.turma,turma))
     .sort((a,b)=>{
@@ -1688,42 +1699,61 @@ async function exportStudentsExcelWithPhotos(turma=''){
 }
 
 async function classSaveStudent(){
-  const chamada=parseInt(byId("classCall").value,10),turma=canonicalRegisteredClass(byId("classTurma").value),nomeDigitado=byId("className").value.trim(),original=byId("classEditOriginal").value;
+  const chamada=parseInt(byId("classCall").value,10);
+  const turma=canonicalRegisteredClass(byId("classTurma").value);
+  const nomeDigitado=String(byId("className").value||'').trim().replace(/\s+/g,' ');
+  const original=byId("classEditOriginal").value;
   if(!chamada||chamada<1||!nomeDigitado||!turma)return toast("Preencha nome, número de chamada e turma.");
-  // O campo Nome aceita e grava somente o nome do aluno. Turma e número ficam em campos próprios.
-  const nome=cleanRegisteredStudentName(nomeDigitado,turma,chamada);
+
+  // REGRA DO CADASTRO: o campo Nome guarda SOMENTE o nome digitado.
+  // Turma e número ficam exclusivamente nos campos turma/chamada. O formato do QR não é gravado no nome.
+  const nome=titleCaseStudentName(nomeDigitado);
   let st=null;
+
   if(original){
-    const idx=db.students.findIndex(s=>s.login===original);if(idx<0)return toast("Aluno não encontrado.");
-    const occupied=db.students.find(s=>s.login!==original&&sameClass(s.turma,turma)&&Number(s.chamada)===chamada);
-    if(occupied)return toast(`O nº ${chamada} já pertence a ${cleanRegisteredStudentName(occupied.nome,turma,chamada)} nesta turma.`);
-    db.students[idx]={...db.students[idx],turma,chamada,nome,status:db.students[idx].status||'Ativo'};st=db.students[idx];
+    const current=db.students.find(s=>s.login===original);
+    if(!current)return toast("Aluno não encontrado.");
+    const occupied=(db.students||[]).find(s=>s.login!==original&&sameClass(s.turma,turma)&&Number(s.chamada)===chamada);
+    if(occupied)return toast(`O nº ${chamada} já pertence a ${titleCaseStudentName(String(occupied.nome||''))} nesta turma.`);
+    current.turma=turma;current.chamada=chamada;current.nome=nome;current.status=current.status||'Ativo';st=current;
   }else{
-    // Turma + número de chamada identificam a vaga. Se houver um registro antigo/oculto nessa vaga,
-    // ele é recuperado e atualizado com o nome puro digitado pelo professor, sem exigir o texto do QR Code.
-    st=db.students.find(s=>sameClass(s.turma,turma)&&Number(s.chamada)===chamada)||null;
-    if(st){st.turma=turma;st.chamada=chamada;st.nome=nome;st.status=st.status||'Ativo';unmarkStudentDeleted(st.login);repairLegacyStudentCredentials(st)}
-    else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};unmarkStudentDeleted(st.login);db.students.push(st)}
+    // Se já houver um registro nessa vaga (inclusive antigo/oculto), reutiliza seus vínculos,
+    // mas substitui definitivamente o nome pelo nome puro digitado agora.
+    const sameSlot=(db.students||[]).filter(s=>sameClass(s.turma,turma)&&Number(s.chamada)===chamada);
+    st=sameSlot[0]||null;
+    if(st){
+      st.turma=turma;st.chamada=chamada;st.nome=nome;st.status=st.status||'Ativo';
+      unmarkStudentDeleted(st.login);
+    }else{
+      const cred=createInternalStudentCredentials(nome);
+      st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};
+      unmarkStudentDeleted(st.login);
+    }
   }
-  ensureStudentVisibleInClass(st);
+
+  // Substituição atômica da vaga turma+número: impede registro antigo/QR de reaparecer na listagem.
+  db.students=(db.students||[]).filter(x=>x===st||!(sameClass(x.turma,turma)&&Number(x.chamada)===chamada));
+  if(!db.students.includes(st))db.students.push(st);
+  st.turma=turma;st.chamada=chamada;st.nome=nome;st.status=st.status||'Ativo';
+  S.cls=turma;
+
+  // O pendente da mesma vaga também é sobrescrito pelo cadastro atual.
   rememberPendingStudent(st);
-  // Grava imediatamente a relação completa no aparelho antes de qualquer sincronização.
-  // A tela da turma também considera os cadastros pendentes, portanto uma resposta antiga
-  // da nuvem não pode esconder o aluno recém-cadastrado.
   try{
-    db.students=applyPendingStudents(db.students||[]);
+    const pending=pendingStudentSlots();
+    pending[studentSlotKey(st)]={...st,nome};
+    localStorage.setItem("jc_pending_student_slots",JSON.stringify(pending));
     localStorage.setItem("jc_students",JSON.stringify(db.students));
     localStorage.setItem("jc_students_pending_sync","1");
   }catch(err){console.error("Falha ao gravar aluno localmente",err);return toast("Não foi possível salvar o aluno neste aparelho.");}
+
   persist();
-  const confirmedLocal=applyPendingStudents(db.students||[]).find(x=>sameClass(x.turma,turma)&&Number(x.chamada)===chamada&&x.login===st.login);
-  if(!confirmedLocal)return toast("Não foi possível confirmar o cadastro do aluno. Nenhuma mensagem de sucesso foi emitida.");
-  S.cls=turma;
+  const saved=(db.students||[]).find(x=>sameClass(x.turma,turma)&&Number(x.chamada)===chamada&&x.login===st.login);
+  if(!saved||saved.nome!==nome)return toast("Não foi possível confirmar o cadastro do aluno.");
+
   try{if(document.activeElement&&typeof document.activeElement.blur==="function")document.activeElement.blur()}catch{}
   const photoFile=pendingTeacherStudentPhoto;closeTeacherCamera();clearTeacherStudentPhoto();
   classStudentsPage();
-  const visibleNow=applyPendingStudents(db.students||[]).some(x=>sameClass(x.turma,S.cls)&&Number(x.chamada)===chamada&&x.login===st.login);
-  if(!visibleNow)return toast("O aluno foi salvo, mas não apareceu na relação. Atualize a página e tente novamente.");
   toast(original?"Aluno atualizado.":"Aluno cadastrado e exibido na relação.");
   Promise.resolve(syncNow(false)).catch(err=>{console.warn("Sincronização do aluno pendente",err);try{localStorage.setItem("jc_students_pending_sync","1")}catch{}});
   if(photoFile){Promise.resolve(assignStudentPhoto(st,photoFile)).then(()=>{persist();Promise.resolve(syncNow(false)).catch(()=>{})}).catch(err=>{console.error("Falha ao salvar foto do aluno",err);toast("Aluno salvo. A foto não foi enviada; você pode adicioná-la depois.")})}
