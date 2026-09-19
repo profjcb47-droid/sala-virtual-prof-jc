@@ -1277,7 +1277,7 @@ function coordReportView(){const r=(db.reports||[]).find(x=>String(x.id)===Strin
 function coordOccurrenceView(){const o=(db.occurrences||[]).find(x=>String(x.id)===String(S.occurrenceId));if(!o)return go('coordReports');const sts=(o.students||[]).map(l=>(db.students||[]).find(s=>s.login===l)).filter(Boolean);const d=o.date?String(o.date).split('-').reverse().join('/'):'—';page.innerHTML=`<a class="back" href="#" onclick="go('coordReports');return false">← Relatórios</a><h1 class="center">⚠️ Ocorrência e Acompanhamento</h1>${coordReadonlyNotice()}<div class="reportActions" style="position:static;margin-bottom:14px"><button class="primary" onclick="exportOccurrenceWord('${e(o.id)}')">📄 Baixar Word (.docx)</button></div><div class="panel"><div class="reportMeta"><b>Turma:</b> ${e(o.turma)}<br><b>Bimestre:</b> ${Number(o.bimestre||1)}º Bimestre/${e(o.ano||'')}<br><b>Data:</b> ${e(d)}<br><b>Professor:</b> ${e(o.professor||'Junio Cesar Batista')}</div><div class="reportSection"><h3>Aluno(s)</h3><p>${e(sts.map(s=>`${String(s.chamada||'').padStart(2,'0')}. ${s.nome}`).join(', ')||'—')}</p></div><div class="reportSection"><h3>Ocorrência(s)</h3><p>${e((o.types||[]).join(', ')||'—')}</p></div><div class="reportSection"><h3>Descrição / Observação</h3><p>${e(o.observation||'—')}</p></div><div class="reportSection"><h3>Comportamento e atenção em sala de aula</h3><p>${e(o.behavior||'—')}</p></div><div class="reportSection"><h3>Participação e realização das atividades</h3><p>${e(o.participation||'—')}</p></div><div class="reportSection"><h3>Dificuldades observadas</h3><p>${e(o.difficulties||'—')}</p></div><div class="reportSection"><h3>Providências / Orientações adotadas</h3><p>${e(o.actions||'—')}</p></div></div>`}
 
 async function restoreOfficialStudentsOnce(){
- const marker="jc_restore_official_214_v1";
+ const marker="jc_restore_official_214_v2";
  if(S.user?.role!=="teacher"||localStorage.getItem(marker)==="1")return;
  try{
   const current=Array.isArray(db.students)?db.students:[];
@@ -1304,7 +1304,7 @@ async function restoreOfficialStudentsOnce(){
   localStorage.setItem("jc_students_pending_sync","1");
   persist();
   await cloudPushDiff();
-  if(!cloudDirty){localStorage.setItem(marker,"1");toast("214 alunos e credenciais restaurados pela relação oficial.");}
+  if(!cloudDirty){localStorage.setItem(marker,"1");toast("214 alunos e credenciais restaurados pela relação oficial.");if(S.page==="classStudents"||S.page==="classes")setTimeout(render,0);}
   else toast("Alunos restaurados neste aparelho. A sincronização será concluída quando a internet estiver disponível.");
  }catch(err){console.error(err);toast("Não foi possível concluir a restauração dos alunos agora.")}
 }
