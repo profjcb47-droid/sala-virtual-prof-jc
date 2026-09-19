@@ -582,7 +582,6 @@ async function mergeRemoteStudentsBeforePush(){
  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.students&select=item_key,data,updated_at');
  const rows=await r.json(),deleted=studentDeleteSet(),local=new Map((db.students||[]).map(st=>[String(st.login||''),st]).filter(x=>x[0]));
  for(const row of rows){const key=String(row.item_key||'');if(!key||deleted.has(key))continue;if(!local.has(key))local.set(key,row.data)}
- for(const st of local.values())st.turma=normalizeImportedClass(st.turma);
  db.students=[...local.values()].sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
  localStorage.setItem('jc_students',JSON.stringify(db.students));
  const sm={};rows.forEach(row=>{sm[String(row.item_key)]=JSON.stringify(row.data)});cloudShadow.students=sm;
@@ -607,7 +606,6 @@ function rebuildCollection(collection,rows){
  const arr=rows.map(r=>r.data);
  if(collection==="classes")return arr.map(String).filter(Boolean);
  if(collection==="students"){
-   arr.forEach(st=>{st.turma=normalizeImportedClass(st.turma)});
    arr.sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
  }
  else arr.sort((a,b)=>Number(b.id||0)-Number(a.id||0));
@@ -1326,11 +1324,8 @@ function openClassesFromHash(){
 function normalizeClassName(name){return String(name||"").replace(/\s+/g," ").trim()}
 function refreshClassesRef(){
   CLASSES=db.classes=Array.from(new Set((db.classes||[]).map(normalizeClassName).filter(Boolean)));
-  // Repara automaticamente turmas antigas gravadas como 9ºA, 9°A, 9º A etc.
-  // Isso faz alunos já existentes voltarem a aparecer na turma canônica 9º Ano A.
-  let repaired=false;
-  if(Array.isArray(db.students))db.students.forEach(st=>{const canonical=normalizeImportedClass(st.turma);if(canonical&&st.turma!==canonical){st.turma=canonical;repaired=true}});
-  if(repaired){try{localStorage.setItem('jc_students',JSON.stringify(db.students));localStorage.setItem('jc_students_pending_sync','1')}catch{} cloudDirty=true;scheduleCloudPush();}
+  // Não reescreve automaticamente a turma dos alunos. A turma gravada é preservada.
+  // A normalização é usada apenas para comparação/leitura (cadastro e QR Code).
 }
 async function createClass(){
   const field=byId("newClassName");
@@ -1684,7 +1679,16 @@ function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(en
 function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
 function classDeleteStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;markStudentDeleted(login);db.students=db.students.filter(s=>s.login!==login);persist();toast("Aluno excluído.");classStudentsPage()}
 function normalizeHeader(v){return String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª.]/g,"").replace(/[^a-z0-9]+/g," ").trim()}
-function normalizeImportedClass(v){const s=String(v||'').trim().toUpperCase().replace(/°/g,'º').replace(/\s+/g,'');const m=s.match(/(\d+)º?([A-Z])/);return m?`${m[1]}º Ano ${m[2]}`:String(v||'').trim()}
+function normalizeImportedClass(v){
+ const raw=String(v||'').trim();if(!raw)return '';
+ const s=raw.normalize('NFKC').toUpperCase().replace(/°/g,'º').replace(/\s+/g,' ').trim();
+ // Primeiro reconhece o formato completo "9º Ano B". É importante capturar a letra
+ // DEPOIS de "Ano"; a rotina antiga capturava o A da palavra ANO e podia transformar
+ // 9º Ano B/C/E/F/G em 9º Ano A.
+ let m=s.match(/^(\d+)\s*º?\s*ANO\s*([A-Z])$/);
+ if(!m)m=s.match(/^(\d+)\s*º?\s*([A-Z])$/);
+ return m?`${m[1]}º Ano ${m[2]}`:raw;
+}
 function titleCaseStudentName(v){const raw=String(v||'').trim().replace(/\s+/g,' ');if(!raw)return '';if(raw!==raw.toUpperCase())return raw;const small=new Set(['DA','DE','DO','DAS','DOS','E']);return raw.toLocaleLowerCase('pt-BR').split(' ').map((w,i)=>i>0&&small.has(w.toUpperCase())?w:w.charAt(0).toLocaleUpperCase('pt-BR')+w.slice(1)).join(' ')}
 function parseCombinedStudentLabel(v,fallbackClass=''){
  const raw=String(v||'').trim();if(!raw)return null;
