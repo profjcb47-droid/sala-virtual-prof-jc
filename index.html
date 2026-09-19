@@ -958,8 +958,20 @@ function hasVisitToday(login){const today=visitDateKey();return (db.visits||[]).
 function findStudentFromQr(raw){
  const original=String(raw||'').trim(),text=normalizeVisitText(original);if(!text)return null;
  const students=[...(db.students||[])];
- const formatted=original.match(/(\d+)\s*[º°]?\s*([A-Za-z])\s*[-–—]\s*(\d{1,3})\s*[.\-:]?\s*(.+)/u);
- if(formatted){const turma=normalizeImportedClass(`${formatted[1]}º${formatted[2]}`),call=Number(formatted[3]),name=normalizeVisitText(formatted[4]);const exact=students.filter(st=>st.turma===turma&&Number(st.chamada)===call);if(exact.length===1){const named=exact.find(st=>normalizeVisitText(st.nome)===name);return named||exact[0]}}
+ // O QR identifica o aluno principalmente por TURMA + Nº DE CHAMADA.
+ // O nome escrito no QR é apenas uma conferência visual e não precisa fazer parte do cadastro.
+ // Aceita: 9°G - 28. NOME, 9º G - 28 NOME, 9G-28-NOME e 9º Ano G - 28. NOME.
+ const formatted=original.match(/(\d+)\s*(?:[º°]\s*(?:ano\s*)?)?([A-Za-z])\s*[-–—:]\s*(\d{1,3})(?:\s*[.\-:]?\s*(.*))?$/iu);
+ if(formatted){
+   const turma=normalizeImportedClass(`${formatted[1]}º${formatted[2]}`),call=Number(formatted[3]);
+   const exact=students.filter(st=>normalizeImportedClass(st.turma)===turma&&Number(st.chamada)===call);
+   if(exact.length===1)return exact[0];
+   if(exact.length>1){
+     const qrName=normalizeVisitText(formatted[4]||'');
+     if(qrName){const named=exact.find(st=>normalizeVisitText(st.nome)===qrName);if(named)return named}
+     return exact[0];
+   }
+ }
  const ordered=students.sort((a,b)=>normalizeVisitText(b.nome).length-normalizeVisitText(a.nome).length);
  let matches=ordered.filter(st=>{const name=normalizeVisitText(st.nome);return name&&(` ${text} `).includes(` ${name} `)});
  if(matches.length===1)return matches[0];if(matches.length>1){const same=matches.filter(st=>st.turma===S.cls);if(same.length===1)return same[0]}
@@ -1455,7 +1467,7 @@ function deleteCurrentClass(){
   toast(`Turma ${turma} excluída${qty?` com ${qty} alunos`:''}.`);
   go('classes');
 }
-function updateClassQrPreview(){const box=byId('classQrPreview');if(!box)return;const temp={turma:byId('classTurma')?.value||S.cls,chamada:byId('classCall')?.value||'',nome:byId('className')?.value?.trim()||''};box.textContent=`Identificação do QR: ${temp.nome&&temp.chamada?studentQrLabel(temp):'—'}`}
+function updateClassQrPreview(){const box=byId('classQrPreview');if(!box)return;const temp={turma:byId('classTurma')?.value||S.cls,chamada:byId('classCall')?.value||'',nome:byId('className')?.value?.trim()||''};box.textContent=`QR reconhecido pelo leitor: ${temp.nome&&temp.chamada?studentQrLabel(temp):'—'}`}
 function classOpenEditor(st=null){
   clearTeacherStudentPhoto();
   const editor=byId("classStudentEditor");editor.classList.remove("hidden");byId("classEditOriginal").value=st?.login||"";byId("classCall").value=st?.chamada||"";byId("classTurma").value=st?.turma||S.cls;byId("className").value=st?.nome||"";byId("classStudentFormTitle").textContent=st?"Editar aluno":"Cadastrar aluno";byId("classSaveStudentBtn").textContent=st?"Salvar alterações":"Salvar aluno";byId("classSaveStudentBtn").onclick=classSaveStudent;byId("classCancelStudentBtn").onclick=()=>{closeTeacherCamera();clearTeacherStudentPhoto();editor.classList.add("hidden")};
@@ -1617,24 +1629,36 @@ async function exportStudentsExcelWithPhotos(turma=''){
 }
 
 async function classSaveStudent(){
-  const chamada=parseInt(byId("classCall").value,10),turma=byId("classTurma").value,nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
+  const chamada=parseInt(byId("classCall").value,10),turma=normalizeImportedClass(byId("classTurma").value),nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
   if(!chamada||chamada<1||!nome||!turma)return toast("Preencha nome, número de chamada e turma.");
-  if(db.students.some(s=>s.turma===turma&&Number(s.chamada)===chamada&&s.login!==original))return toast("Esse número de chamada já existe nessa turma.");
+  if(db.students.some(s=>normalizeImportedClass(s.turma)===turma&&Number(s.chamada)===chamada&&s.login!==original))return toast("Esse número de chamada já existe nessa turma.");
   let st=null;
   if(original){const idx=db.students.findIndex(s=>s.login===original);if(idx<0)return toast("Aluno não encontrado.");db.students[idx]={...db.students[idx],turma,chamada,nome};st=db.students[idx]}
   else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};unmarkStudentDeleted(st.login);db.students.push(st)}
-  let photoOk=true;
-  if(pendingTeacherStudentPhoto){try{await assignStudentPhoto(st,pendingTeacherStudentPhoto)}catch(err){photoOk=false;console.error(err)}}
-  // Salva primeiro no aparelho e fecha o editor imediatamente. No celular,
-  // não aguardamos a sincronização de rede para concluir o cadastro.
-  closeTeacherCamera();clearTeacherStudentPhoto();S.cls=turma;
+  // O cadastro textual é gravado ANTES de qualquer processamento/envio da foto.
+  // Assim, falha de internet, câmera ou upload nunca impede o aluno de ser cadastrado.
+  S.cls=turma;
   try{localStorage.setItem("jc_students_pending_sync","1")}catch{}
   persist();
   try{if(document.activeElement&&typeof document.activeElement.blur==="function")document.activeElement.blur()}catch{}
-  toast(photoOk?(original?"Aluno atualizado.":"Aluno cadastrado."):(original?"Aluno atualizado, mas a foto não foi enviada.":"Aluno cadastrado, mas a foto não foi enviada."));
+  const photoFile=pendingTeacherStudentPhoto;
+  closeTeacherCamera();clearTeacherStudentPhoto();
+  toast(original?"Aluno atualizado.":"Aluno cadastrado.");
   classStudentsPage();
-  // Sincroniza em segundo plano; uma conexão móvel lenta ou instável não impede o salvamento local.
+
+  // Sincroniza os dados do aluno imediatamente em segundo plano.
   Promise.resolve(syncNow(false)).catch(err=>{console.warn("Sincronização do aluno pendente",err);try{localStorage.setItem("jc_students_pending_sync","1")}catch{}});
+
+  // A foto é processada depois, separadamente, sem bloquear nem desfazer o cadastro.
+  if(photoFile){
+    Promise.resolve(assignStudentPhoto(st,photoFile)).then(()=>{
+      persist();
+      Promise.resolve(syncNow(false)).catch(()=>{});
+    }).catch(err=>{
+      console.error("Falha ao salvar foto do aluno",err);
+      toast("Aluno salvo. A foto não foi enviada; você pode adicioná-la depois.");
+    });
+  }
 }
 function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
 function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
