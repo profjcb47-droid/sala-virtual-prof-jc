@@ -1322,6 +1322,9 @@ function openClassesFromHash(){
   render();
 }
 function normalizeClassName(name){return String(name||"").replace(/\s+/g," ").trim()}
+function classCompareKey(name){return normalizeImportedClass(normalizeClassName(name)).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toUpperCase().replace(/°/g,"º").replace(/\s+/g," ").trim()}
+function sameClass(a,b){return !!a&&!!b&&classCompareKey(a)===classCompareKey(b)}
+function canonicalRegisteredClass(name){refreshClassesRef();return CLASSES.find(c=>sameClass(c,name))||normalizeImportedClass(name)}
 function refreshClassesRef(){
   CLASSES=db.classes=Array.from(new Set((db.classes||[]).map(normalizeClassName).filter(Boolean)));
   // Não reescreve automaticamente a turma dos alunos. A turma gravada é preservada.
@@ -1347,7 +1350,7 @@ async function createClass(){
 function classesPage(){
   refreshClassesRef();
   const all=Array.isArray(db.students)?db.students:[];
-  const classInfo=CLASSES.map(c=>({turma:c,quantidade:all.filter(s=>s.turma===c).length}));
+  const classInfo=CLASSES.map(c=>({turma:c,quantidade:all.filter(s=>sameClass(s.turma,c)).length}));
   page.innerHTML=`
     <a class="back" href="#" onclick="history.replaceState(null,'',location.pathname);go('teacher');return false">← Área do professor</a>
     <h1 class="center">Gerenciar turmas</h1>
@@ -1391,7 +1394,7 @@ function classStudentsPage(){
   refreshClassesRef();
   if(!CLASSES.includes(S.cls)&&CLASSES.length)S.cls=CLASSES[0];
   if(!S.classStudentsView)S.classStudentsView='list';
-  const list=(Array.isArray(db.students)?db.students:[]).filter(s=>s.turma===S.cls).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR"));
+  const list=(Array.isArray(db.students)?db.students:[]).filter(s=>sameClass(s.turma,S.cls)).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR"));
   const listHtml=`<div class="studentTablePanel"><div class="studentTableHead" style="grid-template-columns:64px 1fr 120px 190px"><div>Nº</div><div>Aluno</div><div>Status</div><div>Ações</div></div>${list.map((st,i)=>`<div class="studentTableRow" style="grid-template-columns:64px 1fr 120px 190px"><div class="studentCall">${e(st.chamada||"—")}</div><div class="studentName"><div class="studentNameWithPhoto"><div class="studentMiniPhoto" id="class_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><div><b>${e(st.nome)}</b><div class="small muted">${e(studentQrLabel(st))}</div></div></div></div><div><select aria-label="Status do aluno" onchange="setStudentStatus('${encodeURIComponent(st.login)}',this.value)" style="min-width:105px;font-weight:700;padding:8px 6px;border:1px solid #cbd8e6;border-radius:9px;background:#fff"><option value="Ativo" ${(st.status||'Ativo')==='Ativo'?'selected':''}>Ativo</option><option value="Transf." ${st.status==='Transf.'?'selected':''}>Transf.</option></select></div><div class="studentRowActions"><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button><button type="button" class="danger" onclick="classDeleteStudent('${encodeURIComponent(st.login)}')">Excluir</button></div></div>`).join("")||'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>'}</div>`;
   const photoHtml=list.length?`<div class="studentPhotoGrid">${list.map((st,i)=>`<article class="studentPhotoCard"><div class="studentGalleryPhoto" id="gallery_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><h4>${e(st.chamada||'—')}. ${e(st.nome)}</h4><div class="studentGalleryLabel">${e(studentQrLabel(st))}</div><div class="studentRowActions"><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button></div></article>`).join('')}</div>`:'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>';
   page.innerHTML=`
@@ -1437,12 +1440,12 @@ function renameCurrentClass(){
   refreshClassesRef();S.cls=newName;persist();toast("Turma alterada em todo o sistema.");classStudentsPage();
 }
 function deleteAllStudentsInClass(){
-  const qty=db.students.filter(s=>s.turma===S.cls).length;
+  const qty=db.students.filter(s=>sameClass(s.turma,S.cls)).length;
   if(!qty)return toast("Esta turma não possui alunos.");
   if(!confirm(`Excluir TODOS os ${qty} alunos de ${S.cls}?\n\nEsta ação removerá os cadastros dos alunos desta turma.`))return;
   if(!confirm("Confirme novamente: deseja realmente apagar todos os alunos desta turma?"))return;
-  db.students.filter(s=>s.turma===S.cls).forEach(s=>markStudentDeleted(s.login));
-  db.students=db.students.filter(s=>s.turma!==S.cls);persist();toast("Todos os alunos da turma foram excluídos.");classStudentsPage();
+  db.students.filter(s=>sameClass(s.turma,S.cls)).forEach(s=>markStudentDeleted(s.login));
+  db.students=db.students.filter(s=>!sameClass(s.turma,S.cls));persist();toast("Todos os alunos da turma foram excluídos.");classStudentsPage();
 }
 function deleteCurrentClass(){
   refreshClassesRef();
@@ -1508,7 +1511,7 @@ function createInternalStudentCredentials(nome){
 }
 function credentialsRowsForClass(turma){
   return (db.students||[])
-    .filter(s=>!turma||s.turma===turma)
+    .filter(s=>!turma||sameClass(s.turma,turma))
     .sort((a,b)=>{
       const ca=CLASSES.indexOf(a.turma),cb=CLASSES.indexOf(b.turma);
       return ca-cb||(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR");
@@ -1538,7 +1541,7 @@ function downloadStudentCredentials(turma=""){
 
 function safeExportName(value){return String(value||'Todas_as_Turmas').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,'_').replace(/^_+|_+$/g,'')||'Alunos'}
 function exportStudentsForClass(turma=''){
-  return (db.students||[]).filter(s=>!turma||s.turma===turma).sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+  return (db.students||[]).filter(s=>!turma||sameClass(s.turma,turma)).sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
 }
 function loadExternalScriptOnce(src,test){
   if(test())return Promise.resolve();
@@ -1635,9 +1638,9 @@ async function exportStudentsExcelWithPhotos(turma=''){
 }
 
 async function classSaveStudent(){
-  const chamada=parseInt(byId("classCall").value,10),turma=normalizeImportedClass(byId("classTurma").value),nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
+  const chamada=parseInt(byId("classCall").value,10),turma=canonicalRegisteredClass(byId("classTurma").value),nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
   if(!chamada||chamada<1||!nome||!turma)return toast("Preencha nome, número de chamada e turma.");
-  const existingByCall=db.students.find(s=>normalizeImportedClass(s.turma)===turma&&Number(s.chamada)===chamada&&s.login!==original);
+  const existingByCall=db.students.find(s=>sameClass(s.turma,turma)&&Number(s.chamada)===chamada&&s.login!==original);
   if(existingByCall){
     const clean=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
     if(clean(existingByCall.nome)===clean(nome)){
