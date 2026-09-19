@@ -551,44 +551,53 @@ const db={
  localStorage.setItem("jc_usedStudentPasswords",JSON.stringify(db.usedStudentPasswords));
 })();
 
-/* ===== Restauração segura da relação oficial de alunos (19/09/2026) =====
-   Usa a relação original de credenciais já embutida em DEFAULT_STUDENTS.
-   A restauração acontece uma única vez neste navegador: corrige turma, chamada,
-   nome, login e senha dos alunos oficiais, mas PRESERVA foto/status/metadados
-   já existentes. Alunos novos que não fazem parte da relação oficial também
-   são preservados. */
-(function restoreOfficialRosterOnce(){
-  const FLAG="jc_official_roster_restored_20260919_v2";
-  if(localStorage.getItem(FLAG)==="1")return;
+/* ===== Restauração segura e permanente da relação oficial de alunos (19/09/2026) =====
+   DEFAULT_STUDENTS é a relação oficial recebida na planilha de credenciais.
+   Em TODA abertura, garante que TODOS os alunos oficiais estejam presentes.
+   Preserva foto/status/metadados dos registros existentes e mantém cadastros novos.
+   Cada aluno oficial também fica protegido como pendente até ser confirmado na nuvem,
+   impedindo uma cópia incompleta do Supabase de fazê-lo desaparecer novamente. */
+(function ensureOfficialRosterComplete(){
   try{
     const current=Array.isArray(db.students)?db.students:[];
     const officialSlots=new Set(DEFAULT_STUDENTS.map(st=>`${classCompareKey(st.turma)}::${Number(st.chamada)}`));
+    const officialLogins=new Set(DEFAULT_STUDENTS.map(st=>String(st.login||'').toLowerCase()));
     const usedCurrent=new Set();
     const restored=[];
+    const pending=pendingStudentSlots();
+
     for(const off of DEFAULT_STUDENTS){
       const slot=`${classCompareKey(off.turma)}::${Number(off.chamada)}`;
-      let cur=current.find(st=>String(st.login||'').toLowerCase()===String(off.login).toLowerCase());
+      let cur=current.find(st=>String(st.login||'').toLowerCase()===String(off.login||'').toLowerCase());
       if(!cur)cur=current.find(st=>`${classCompareKey(st.turma)}::${Number(st.chamada)}`===slot);
+      if(!cur)cur=current.find(st=>sameClass(st.turma,off.turma)&&normalizeVisitText(st.nome||'')===normalizeVisitText(off.nome||''));
       if(cur)usedCurrent.add(cur);
-      if(cur&&cur.login&&cur.login!==off.login)migrateStudentLogin(cur.login,off.login);
+
+      // Não migra nem apaga fotos. Mantém os metadados do registro existente,
+      // mas restaura os cinco campos oficiais da planilha.
       const keep=cur?{...cur}:{};
       const fixed={...keep,turma:off.turma,chamada:Number(off.chamada),nome:off.nome,login:off.login,senha:String(off.senha),status:keep.status||'Ativo'};
       restored.push(fixed);
+      pending[slot]={...fixed};
       unmarkStudentDeleted(off.login);
+      if(cur?.login&&cur.login!==off.login)unmarkStudentDeleted(cur.login);
     }
-    // Mantém cadastros realmente novos, desde que não ocupem uma vaga oficial.
+
+    // Preserva alunos realmente novos que não pertencem a uma vaga/login oficial.
     for(const st of current){
-      if(usedCurrent.has(st))continue;
+      if(!st||usedCurrent.has(st))continue;
       const slot=`${classCompareKey(st.turma)}::${Number(st.chamada)}`;
       if(officialSlots.has(slot))continue;
+      if(officialLogins.has(String(st.login||'').toLowerCase()))continue;
       if(restored.some(x=>String(x.login||'').toLowerCase()===String(st.login||'').toLowerCase()))continue;
       restored.push(st);
     }
+
     db.students=restored.sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
     localStorage.setItem('jc_students',JSON.stringify(db.students));
+    localStorage.setItem('jc_pending_student_slots',JSON.stringify(pending));
     localStorage.setItem('jc_students_pending_sync','1');
-    localStorage.setItem(FLAG,'1');
-  }catch(err){console.error('Falha ao restaurar relação oficial de alunos',err)}
+  }catch(err){console.error('Falha ao garantir relação oficial completa de alunos',err)}
 })();
 
 const S={user:null,role:"student",page:"login",cls:"9º Ano A",sub:"Matemática",contentMode:"file",contentTab:"Arquivos",chatLogin:null,activityId:null,reportYear:new Date().getFullYear(),reportBimester:1,reportType:null,reportId:null,reportStudent:null,occurrenceMode:"coletivo",occurrenceId:null,videoEditId:null,videoStudentSubject:null,highlightEditId:null};
