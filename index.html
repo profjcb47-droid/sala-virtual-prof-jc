@@ -582,6 +582,7 @@ async function mergeRemoteStudentsBeforePush(){
  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.students&select=item_key,data,updated_at');
  const rows=await r.json(),deleted=studentDeleteSet(),local=new Map((db.students||[]).map(st=>[String(st.login||''),st]).filter(x=>x[0]));
  for(const row of rows){const key=String(row.item_key||'');if(!key||deleted.has(key))continue;if(!local.has(key))local.set(key,row.data)}
+ for(const st of local.values())st.turma=normalizeImportedClass(st.turma);
  db.students=[...local.values()].sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
  localStorage.setItem('jc_students',JSON.stringify(db.students));
  const sm={};rows.forEach(row=>{sm[String(row.item_key)]=JSON.stringify(row.data)});cloudShadow.students=sm;
@@ -605,7 +606,10 @@ function rebuildCollection(collection,rows){
  if(collection==="schedule"||collection==="accesses"||collection==="activityViews"||collection==="contentViews"||collection==="libraryViews"||collection==="libraryLinks"||collection==="announcementReads"||collection==="highlightReads"||collection==="coordNotificationReads"||collection==="teacherNotificationReads"||collection==="visitPeriod"){const o={};rows.forEach(r=>o[r.item_key]=r.data);return o}
  const arr=rows.map(r=>r.data);
  if(collection==="classes")return arr.map(String).filter(Boolean);
- if(collection==="students")arr.sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
+ if(collection==="students"){
+   arr.forEach(st=>{st.turma=normalizeImportedClass(st.turma)});
+   arr.sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
+ }
  else arr.sort((a,b)=>Number(b.id||0)-Number(a.id||0));
  return arr
 }
@@ -1320,7 +1324,14 @@ function openClassesFromHash(){
   render();
 }
 function normalizeClassName(name){return String(name||"").replace(/\s+/g," ").trim()}
-function refreshClassesRef(){CLASSES=db.classes=Array.from(new Set((db.classes||[]).map(normalizeClassName).filter(Boolean)))}
+function refreshClassesRef(){
+  CLASSES=db.classes=Array.from(new Set((db.classes||[]).map(normalizeClassName).filter(Boolean)));
+  // Repara automaticamente turmas antigas gravadas como 9ºA, 9°A, 9º A etc.
+  // Isso faz alunos já existentes voltarem a aparecer na turma canônica 9º Ano A.
+  let repaired=false;
+  if(Array.isArray(db.students))db.students.forEach(st=>{const canonical=normalizeImportedClass(st.turma);if(canonical&&st.turma!==canonical){st.turma=canonical;repaired=true}});
+  if(repaired){try{localStorage.setItem('jc_students',JSON.stringify(db.students));localStorage.setItem('jc_students_pending_sync','1')}catch{} cloudDirty=true;scheduleCloudPush();}
+}
 async function createClass(){
   const field=byId("newClassName");
   const nome=normalizeClassName(field?.value||"");
@@ -1631,7 +1642,16 @@ async function exportStudentsExcelWithPhotos(turma=''){
 async function classSaveStudent(){
   const chamada=parseInt(byId("classCall").value,10),turma=normalizeImportedClass(byId("classTurma").value),nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
   if(!chamada||chamada<1||!nome||!turma)return toast("Preencha nome, número de chamada e turma.");
-  if(db.students.some(s=>normalizeImportedClass(s.turma)===turma&&Number(s.chamada)===chamada&&s.login!==original))return toast("Esse número de chamada já existe nessa turma.");
+  const existingByCall=db.students.find(s=>normalizeImportedClass(s.turma)===turma&&Number(s.chamada)===chamada&&s.login!==original);
+  if(existingByCall){
+    const clean=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
+    if(clean(existingByCall.nome)===clean(nome)){
+      // O aluno já existia, mas podia estar oculto por uma grafia antiga da turma.
+      existingByCall.turma=turma;existingByCall.chamada=chamada;existingByCall.nome=nome;existingByCall.status=existingByCall.status||'Ativo';
+      unmarkStudentDeleted(existingByCall.login);S.cls=turma;persist();toast("Aluno recuperado e restaurado na relação da turma.");classStudentsPage();return;
+    }
+    return toast(`O nº ${chamada} já pertence a ${existingByCall.nome} nesta turma.`);
+  }
   let st=null;
   if(original){const idx=db.students.findIndex(s=>s.login===original);if(idx<0)return toast("Aluno não encontrado.");db.students[idx]={...db.students[idx],turma,chamada,nome};st=db.students[idx]}
   else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};unmarkStudentDeleted(st.login);db.students.push(st)}
