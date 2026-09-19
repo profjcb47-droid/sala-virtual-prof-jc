@@ -1638,17 +1638,19 @@ async function exportStudentsExcelWithPhotos(turma=''){
 }
 
 async function classSaveStudent(){
-  const chamada=parseInt(byId("classCall").value,10),turma=canonicalRegisteredClass(byId("classTurma").value),nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
-  if(!chamada||chamada<1||!nome||!turma)return toast("Preencha nome, número de chamada e turma.");
+  const chamada=parseInt(byId("classCall").value,10),turma=canonicalRegisteredClass(byId("classTurma").value),nomeDigitado=byId("className").value.trim(),original=byId("classEditOriginal").value;
+  if(!chamada||chamada<1||!nomeDigitado||!turma)return toast("Preencha nome, número de chamada e turma.");
+  // O cadastro sempre guarda SOMENTE o nome. O prefixo "9ºA - 27." pertence exclusivamente ao QR Code.
+  const nome=cleanRegisteredStudentName(nomeDigitado,turma,chamada);
   const existingByCall=db.students.find(s=>sameClass(s.turma,turma)&&Number(s.chamada)===chamada&&s.login!==original);
   if(existingByCall){
-    const clean=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
-    if(clean(existingByCall.nome)===clean(nome)){
-      // O aluno já existia, mas podia estar oculto por uma grafia antiga da turma.
+    // Recupera cadastros antigos que tenham sido gravados no formato completo do QR Code.
+    // Ex.: "9ºA - 27. Miguel..." passa a ser apenas "Miguel...", preservando login, senha e dados vinculados.
+    if(comparableStudentName(existingByCall.nome,turma,chamada)===comparableStudentName(nome,turma,chamada)){
       existingByCall.turma=turma;existingByCall.chamada=chamada;existingByCall.nome=nome;existingByCall.status=existingByCall.status||'Ativo';
-      unmarkStudentDeleted(existingByCall.login);S.cls=turma;persist();toast("Aluno recuperado e restaurado na relação da turma.");classStudentsPage();return;
+      unmarkStudentDeleted(existingByCall.login);S.cls=turma;persist();toast("Aluno salvo e restaurado na relação da turma.");classStudentsPage();return;
     }
-    return toast(`O nº ${chamada} já pertence a ${existingByCall.nome} nesta turma.`);
+    return toast(`O nº ${chamada} já pertence a ${cleanRegisteredStudentName(existingByCall.nome,turma,chamada)} nesta turma.`);
   }
   let st=null;
   if(original){const idx=db.students.findIndex(s=>s.login===original);if(idx<0)return toast("Aluno não encontrado.");db.students[idx]={...db.students[idx],turma,chamada,nome};st=db.students[idx]}
@@ -1699,6 +1701,15 @@ function parseCombinedStudentLabel(v,fallbackClass=''){
  if(m)return {turma:normalizeImportedClass(`${m[1]}º${m[2]}`),chamada:parseInt(m[3],10),nome:titleCaseStudentName(m[4]),label:raw};
  const n=raw.match(/^\s*(\d{1,3})\s*[.\-:]\s*(.+?)\s*$/u);if(n&&fallbackClass)return {turma:normalizeImportedClass(fallbackClass),chamada:parseInt(n[1],10),nome:titleCaseStudentName(n[2]),label:raw};
  return null;
+}
+function cleanRegisteredStudentName(value,turma='',chamada=0){
+ const raw=String(value||'').trim().replace(/\s+/g,' ');if(!raw)return '';
+ const parsed=parseCombinedStudentLabel(raw,turma);
+ if(parsed&&(!turma||sameClass(parsed.turma,turma))&&(!chamada||Number(parsed.chamada)===Number(chamada)))return parsed.nome;
+ return titleCaseStudentName(raw);
+}
+function comparableStudentName(value,turma='',chamada=0){
+ return cleanRegisteredStudentName(value,turma,chamada).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9]+/g,' ').trim();
 }
 function inferClassFromSheetName(name){const m=String(name||'').toUpperCase().replace(/°/g,'º').match(/(\d+)º?\s*([A-Z])/);return m?`${m[1]}º Ano ${m[2]}`:''}
 function parseStudentSheetRows(sheet,sheetName){
@@ -1910,15 +1921,22 @@ function openStudentEditor(stt=null){
 
 function saveStudent(){
   const chamada=parseInt(byId("sc").value,10);
-  const turma=byId("st").value;
-  const nome=byId("sn").value.trim();
+  const turma=canonicalRegisteredClass(byId("st").value);
+  const nomeDigitado=byId("sn").value.trim();
   const original=byId("editLoginOriginal").value;
 
-  if(!chamada||chamada<1||!nome||!turma)
+  if(!chamada||chamada<1||!nomeDigitado||!turma)
     return toast("Preencha nome, número de chamada e turma.");
 
-  if(db.students.some(x=>x.turma===turma && Number(x.chamada)===chamada && x.login!==original))
-    return toast("Esse número de chamada já está em uso nessa turma.");
+  const nome=cleanRegisteredStudentName(nomeDigitado,turma,chamada);
+  const existingByCall=db.students.find(x=>sameClass(x.turma,turma)&&Number(x.chamada)===chamada&&x.login!==original);
+  if(existingByCall){
+    if(comparableStudentName(existingByCall.nome,turma,chamada)===comparableStudentName(nome,turma,chamada)){
+      existingByCall.turma=turma;existingByCall.chamada=chamada;existingByCall.nome=nome;existingByCall.status=existingByCall.status||'Ativo';
+      unmarkStudentDeleted(existingByCall.login);S.cls=turma;persist();toast("Aluno salvo e restaurado na relação da turma.");studentsPage();return;
+    }
+    return toast(`O nº ${chamada} já pertence a ${cleanRegisteredStudentName(existingByCall.nome,turma,chamada)} nesta turma.`);
+  }
 
   if(original){
     const idx=db.students.findIndex(x=>x.login===original);
@@ -1927,7 +1945,7 @@ function saveStudent(){
     toast("Aluno atualizado.");
   }else{
     const cred=createInternalStudentCredentials(nome);
-    db.students.push({turma,chamada,nome,login:cred.login,senha:cred.senha});
+    db.students.push({turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'});
     toast("Aluno cadastrado.");
   }
 
