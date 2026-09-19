@@ -551,6 +551,46 @@ const db={
  localStorage.setItem("jc_usedStudentPasswords",JSON.stringify(db.usedStudentPasswords));
 })();
 
+/* ===== Restauração segura da relação oficial de alunos (19/09/2026) =====
+   Usa a relação original de credenciais já embutida em DEFAULT_STUDENTS.
+   A restauração acontece uma única vez neste navegador: corrige turma, chamada,
+   nome, login e senha dos alunos oficiais, mas PRESERVA foto/status/metadados
+   já existentes. Alunos novos que não fazem parte da relação oficial também
+   são preservados. */
+(function restoreOfficialRosterOnce(){
+  const FLAG="jc_official_roster_restored_20260919_v2";
+  if(localStorage.getItem(FLAG)==="1")return;
+  try{
+    const current=Array.isArray(db.students)?db.students:[];
+    const officialSlots=new Set(DEFAULT_STUDENTS.map(st=>`${classCompareKey(st.turma)}::${Number(st.chamada)}`));
+    const usedCurrent=new Set();
+    const restored=[];
+    for(const off of DEFAULT_STUDENTS){
+      const slot=`${classCompareKey(off.turma)}::${Number(off.chamada)}`;
+      let cur=current.find(st=>String(st.login||'').toLowerCase()===String(off.login).toLowerCase());
+      if(!cur)cur=current.find(st=>`${classCompareKey(st.turma)}::${Number(st.chamada)}`===slot);
+      if(cur)usedCurrent.add(cur);
+      if(cur&&cur.login&&cur.login!==off.login)migrateStudentLogin(cur.login,off.login);
+      const keep=cur?{...cur}:{};
+      const fixed={...keep,turma:off.turma,chamada:Number(off.chamada),nome:off.nome,login:off.login,senha:String(off.senha),status:keep.status||'Ativo'};
+      restored.push(fixed);
+      unmarkStudentDeleted(off.login);
+    }
+    // Mantém cadastros realmente novos, desde que não ocupem uma vaga oficial.
+    for(const st of current){
+      if(usedCurrent.has(st))continue;
+      const slot=`${classCompareKey(st.turma)}::${Number(st.chamada)}`;
+      if(officialSlots.has(slot))continue;
+      if(restored.some(x=>String(x.login||'').toLowerCase()===String(st.login||'').toLowerCase()))continue;
+      restored.push(st);
+    }
+    db.students=restored.sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
+    localStorage.setItem('jc_students',JSON.stringify(db.students));
+    localStorage.setItem('jc_students_pending_sync','1');
+    localStorage.setItem(FLAG,'1');
+  }catch(err){console.error('Falha ao restaurar relação oficial de alunos',err)}
+})();
+
 const S={user:null,role:"student",page:"login",cls:"9º Ano A",sub:"Matemática",contentMode:"file",contentTab:"Arquivos",chatLogin:null,activityId:null,reportYear:new Date().getFullYear(),reportBimester:1,reportType:null,reportId:null,reportStudent:null,occurrenceMode:"coletivo",occurrenceId:null,videoEditId:null,videoStudentSubject:null,highlightEditId:null};
 function saveSessionState(){try{if(S.user)sessionStorage.setItem("jc_active_session",JSON.stringify({role:S.user.role||S.role,login:S.user.login||""}));else sessionStorage.removeItem("jc_active_session")}catch{}}
 (function restoreSessionState(){try{const raw=sessionStorage.getItem("jc_active_session");if(!raw)return;const x=JSON.parse(raw);if(x.role==="teacher"&&x.login===T.login){S.role="teacher";S.user=T;S.page="teacher";return}if(x.role==="coordinator"&&x.login===COORD.login){S.role="teacher";S.user=COORD;S.page="coordinator";return}if(x.role==="student"&&x.login){const st=db.students.find(a=>a.login===x.login);if(st){S.role="student";S.user={...st,role:"student"};S.page="student"}}}catch{}})();
