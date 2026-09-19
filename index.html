@@ -1411,7 +1411,7 @@ function classStudentsPage(){
   refreshClassesRef();
   if(!CLASSES.includes(S.cls)&&CLASSES.length)S.cls=CLASSES[0];
   if(!S.classStudentsView)S.classStudentsView='list';
-  const list=(Array.isArray(db.students)?db.students:[]).filter(s=>sameClass(s.turma,S.cls)).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR"));
+  const list=applyPendingStudents(Array.isArray(db.students)?db.students:[]).filter(s=>sameClass(s.turma,S.cls)).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR"));
   const listHtml=`<div class="studentTablePanel"><div class="studentTableHead" style="grid-template-columns:64px 1fr 120px 190px"><div>Nº</div><div>Aluno</div><div>Status</div><div>Ações</div></div>${list.map((st,i)=>`<div class="studentTableRow" style="grid-template-columns:64px 1fr 120px 190px"><div class="studentCall">${e(st.chamada||"—")}</div><div class="studentName"><div class="studentNameWithPhoto"><div class="studentMiniPhoto" id="class_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><div><b>${e(st.nome)}</b><div class="small muted">${e(studentQrLabel(st))}</div></div></div></div><div><select aria-label="Status do aluno" onchange="setStudentStatus('${encodeURIComponent(st.login)}',this.value)" style="min-width:105px;font-weight:700;padding:8px 6px;border:1px solid #cbd8e6;border-radius:9px;background:#fff"><option value="Ativo" ${(st.status||'Ativo')==='Ativo'?'selected':''}>Ativo</option><option value="Transf." ${st.status==='Transf.'?'selected':''}>Transf.</option></select></div><div class="studentRowActions"><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button><button type="button" class="danger" onclick="classDeleteStudent('${encodeURIComponent(st.login)}')">Excluir</button></div></div>`).join("")||'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>'}</div>`;
   const photoHtml=list.length?`<div class="studentPhotoGrid">${list.map((st,i)=>`<article class="studentPhotoCard"><div class="studentGalleryPhoto" id="gallery_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><h4>${e(st.chamada||'—')}. ${e(st.nome)}</h4><div class="studentGalleryLabel">${e(studentQrLabel(st))}</div><div class="studentRowActions"><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button></div></article>`).join('')}</div>`:'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>';
   page.innerHTML=`
@@ -1707,12 +1707,24 @@ async function classSaveStudent(){
   }
   ensureStudentVisibleInClass(st);
   rememberPendingStudent(st);
+  // Grava imediatamente a relação completa no aparelho antes de qualquer sincronização.
+  // A tela da turma também considera os cadastros pendentes, portanto uma resposta antiga
+  // da nuvem não pode esconder o aluno recém-cadastrado.
+  try{
+    db.students=applyPendingStudents(db.students||[]);
+    localStorage.setItem("jc_students",JSON.stringify(db.students));
+    localStorage.setItem("jc_students_pending_sync","1");
+  }catch(err){console.error("Falha ao gravar aluno localmente",err);return toast("Não foi possível salvar o aluno neste aparelho.");}
   persist();
-  const confirmedLocal=(db.students||[]).find(x=>sameClass(x.turma,turma)&&Number(x.chamada)===chamada&&x.login===st.login);
+  const confirmedLocal=applyPendingStudents(db.students||[]).find(x=>sameClass(x.turma,turma)&&Number(x.chamada)===chamada&&x.login===st.login);
   if(!confirmedLocal)return toast("Não foi possível confirmar o cadastro do aluno. Nenhuma mensagem de sucesso foi emitida.");
+  S.cls=turma;
   try{if(document.activeElement&&typeof document.activeElement.blur==="function")document.activeElement.blur()}catch{}
   const photoFile=pendingTeacherStudentPhoto;closeTeacherCamera();clearTeacherStudentPhoto();
-  toast(original?"Aluno atualizado.":"Aluno cadastrado e exibido na relação.");classStudentsPage();
+  classStudentsPage();
+  const visibleNow=applyPendingStudents(db.students||[]).some(x=>sameClass(x.turma,S.cls)&&Number(x.chamada)===chamada&&x.login===st.login);
+  if(!visibleNow)return toast("O aluno foi salvo, mas não apareceu na relação. Atualize a página e tente novamente.");
+  toast(original?"Aluno atualizado.":"Aluno cadastrado e exibido na relação.");
   Promise.resolve(syncNow(false)).catch(err=>{console.warn("Sincronização do aluno pendente",err);try{localStorage.setItem("jc_students_pending_sync","1")}catch{}});
   if(photoFile){Promise.resolve(assignStudentPhoto(st,photoFile)).then(()=>{persist();Promise.resolve(syncNow(false)).catch(()=>{})}).catch(err=>{console.error("Falha ao salvar foto do aluno",err);toast("Aluno salvo. A foto não foi enviada; você pode adicioná-la depois.")})}
 }
