@@ -1512,6 +1512,29 @@ function generateUniqueStudentPassword(){
   db.usedStudentPasswords.push(senha);
   return senha;
 }
+
+function desiredStudentLogin(nome,currentLogin=''){
+  const parts=String(nome||'aluno').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9 ]+/g,' ').trim().split(/\s+/).filter(Boolean);
+  const root=(parts.slice(0,2).join('')||'aluno');let login=root,n=2;
+  while((db.students||[]).some(st=>st.login!==currentLogin&&String(st.login||'').toLowerCase()===login.toLowerCase()))login=root+(n++);
+  return login;
+}
+function migrateStudentLogin(oldLogin,newLogin){
+  if(!oldLogin||!newLogin||oldLogin===newLogin)return;
+  const arrays=['messages','submissions','activityResponses','reports','occurrences','visits'];
+  arrays.forEach(k=>(db[k]||[]).forEach(x=>{if(x&&x.login===oldLogin)x.login=newLogin;if(x&&x.studentLogin===oldLogin)x.studentLogin=newLogin}));
+  const maps=['accesses','activityViews','contentViews','libraryViews','announcementReads','highlightReads','teacherNotificationReads'];
+  maps.forEach(k=>{const o=db[k];if(!o||Array.isArray(o)||typeof o!=='object')return;for(const key of Object.keys(o)){if(key===oldLogin||key.startsWith(oldLogin+':')){const nk=key===oldLogin?newLogin:newLogin+key.slice(oldLogin.length);if(!Object.prototype.hasOwnProperty.call(o,nk))o[nk]=o[key];delete o[key]}}});
+  markStudentDeleted(oldLogin);unmarkStudentDeleted(newLogin);
+}
+function repairLegacyStudentCredentials(st){
+  if(!st)return;
+  const legacy=/^9[a-z]\d*$/i.test(String(st.login||''));
+  if(!legacy)return;
+  const old=st.login,newLogin=desiredStudentLogin(st.nome,old);
+  migrateStudentLogin(old,newLogin);st.login=newLogin;
+  st.senha='24'+String(Number(st.chamada)||0).padStart(2,'0');
+}
 function createInternalStudentCredentials(nome){
   const parts=(nome||"aluno").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").trim().split(/\s+/).filter(Boolean);
   const root=(parts.slice(0,2).join("")||"aluno");
@@ -1660,45 +1683,29 @@ async function exportStudentsExcelWithPhotos(turma=''){
 async function classSaveStudent(){
   const chamada=parseInt(byId("classCall").value,10),turma=canonicalRegisteredClass(byId("classTurma").value),nomeDigitado=byId("className").value.trim(),original=byId("classEditOriginal").value;
   if(!chamada||chamada<1||!nomeDigitado||!turma)return toast("Preencha nome, número de chamada e turma.");
-  // O cadastro sempre guarda SOMENTE o nome. O prefixo "9ºA - 27." pertence exclusivamente ao QR Code.
+  // O campo Nome aceita e grava somente o nome do aluno. Turma e número ficam em campos próprios.
   const nome=cleanRegisteredStudentName(nomeDigitado,turma,chamada);
-  const existingByCall=db.students.find(s=>sameClass(s.turma,turma)&&Number(s.chamada)===chamada&&s.login!==original);
-  if(existingByCall){
-    // Recupera cadastros antigos que tenham sido gravados no formato completo do QR Code.
-    // Ex.: "9ºA - 27. Miguel..." passa a ser apenas "Miguel...", preservando login, senha e dados vinculados.
-    if(comparableStudentName(existingByCall.nome,turma,chamada)===comparableStudentName(nome,turma,chamada)){
-      existingByCall.turma=turma;existingByCall.chamada=chamada;existingByCall.nome=nome;existingByCall.status=existingByCall.status||'Ativo';
-      unmarkStudentDeleted(existingByCall.login);ensureStudentVisibleInClass(existingByCall);try{localStorage.setItem('jc_students_pending_sync','1')}catch{}persist();toast("Aluno salvo e restaurado na relação da turma.");classStudentsPage();return;
-    }
-    return toast(`O nº ${chamada} já pertence a ${cleanRegisteredStudentName(existingByCall.nome,turma,chamada)} nesta turma.`);
-  }
   let st=null;
-  if(original){const idx=db.students.findIndex(s=>s.login===original);if(idx<0)return toast("Aluno não encontrado.");db.students[idx]={...db.students[idx],turma,chamada,nome};st=db.students[idx]}
-  else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};unmarkStudentDeleted(st.login);db.students.push(st)}
-  // O cadastro textual é gravado ANTES de qualquer processamento/envio da foto.
-  // Assim, falha de internet, câmera ou upload nunca impede o aluno de ser cadastrado.
+  if(original){
+    const idx=db.students.findIndex(s=>s.login===original);if(idx<0)return toast("Aluno não encontrado.");
+    const occupied=db.students.find(s=>s.login!==original&&sameClass(s.turma,turma)&&Number(s.chamada)===chamada);
+    if(occupied)return toast(`O nº ${chamada} já pertence a ${cleanRegisteredStudentName(occupied.nome,turma,chamada)} nesta turma.`);
+    db.students[idx]={...db.students[idx],turma,chamada,nome,status:db.students[idx].status||'Ativo'};st=db.students[idx];
+  }else{
+    // Turma + número de chamada identificam a vaga. Se houver um registro antigo/oculto nessa vaga,
+    // ele é recuperado e atualizado com o nome puro digitado pelo professor, sem exigir o texto do QR Code.
+    st=db.students.find(s=>sameClass(s.turma,turma)&&Number(s.chamada)===chamada)||null;
+    if(st){st.turma=turma;st.chamada=chamada;st.nome=nome;st.status=st.status||'Ativo';unmarkStudentDeleted(st.login);repairLegacyStudentCredentials(st)}
+    else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};unmarkStudentDeleted(st.login);db.students.push(st)}
+  }
   ensureStudentVisibleInClass(st);
   try{localStorage.setItem("jc_students_pending_sync","1")}catch{}
   persist();
   try{if(document.activeElement&&typeof document.activeElement.blur==="function")document.activeElement.blur()}catch{}
-  const photoFile=pendingTeacherStudentPhoto;
-  closeTeacherCamera();clearTeacherStudentPhoto();
-  toast(original?"Aluno atualizado.":"Aluno cadastrado.");
-  classStudentsPage();
-
-  // Sincroniza os dados do aluno imediatamente em segundo plano.
+  const photoFile=pendingTeacherStudentPhoto;closeTeacherCamera();clearTeacherStudentPhoto();
+  toast(original?"Aluno atualizado.":"Aluno cadastrado e exibido na relação.");classStudentsPage();
   Promise.resolve(syncNow(false)).catch(err=>{console.warn("Sincronização do aluno pendente",err);try{localStorage.setItem("jc_students_pending_sync","1")}catch{}});
-
-  // A foto é processada depois, separadamente, sem bloquear nem desfazer o cadastro.
-  if(photoFile){
-    Promise.resolve(assignStudentPhoto(st,photoFile)).then(()=>{
-      persist();
-      Promise.resolve(syncNow(false)).catch(()=>{});
-    }).catch(err=>{
-      console.error("Falha ao salvar foto do aluno",err);
-      toast("Aluno salvo. A foto não foi enviada; você pode adicioná-la depois.");
-    });
-  }
+  if(photoFile){Promise.resolve(assignStudentPhoto(st,photoFile)).then(()=>{persist();Promise.resolve(syncNow(false)).catch(()=>{})}).catch(err=>{console.error("Falha ao salvar foto do aluno",err);toast("Aluno salvo. A foto não foi enviada; você pode adicioná-la depois.")})}
 }
 function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
 function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
