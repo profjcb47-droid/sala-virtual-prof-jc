@@ -577,11 +577,16 @@ function studentDeleteSet(){try{return new Set(JSON.parse(localStorage.getItem("
 function saveStudentDeleteSet(set){try{localStorage.setItem("jc_student_delete_keys",JSON.stringify([...set]))}catch{}}
 function markStudentDeleted(login){if(!login)return;const set=studentDeleteSet();set.add(String(login));saveStudentDeleteSet(set)}
 function unmarkStudentDeleted(login){if(!login)return;const set=studentDeleteSet();if(set.delete(String(login)))saveStudentDeleteSet(set)}
+function pendingStudentSlots(){try{const x=JSON.parse(localStorage.getItem("jc_pending_student_slots")||"{}");return x&&typeof x==='object'&&!Array.isArray(x)?x:{}}catch{return {}}}
+function studentSlotKey(st){return `${classCompareKey(st?.turma||'')}::${Number(st?.chamada||0)}`}
+function rememberPendingStudent(st){if(!st||!st.turma||!st.chamada)return;const o=pendingStudentSlots();o[studentSlotKey(st)]={...st};try{localStorage.setItem("jc_pending_student_slots",JSON.stringify(o));localStorage.setItem("jc_students_pending_sync","1")}catch{}}
+function applyPendingStudents(list){const out=Array.isArray(list)?[...list]:[];for(const st of Object.values(pendingStudentSlots())){if(!st)continue;const slot=studentSlotKey(st);const i=out.findIndex(x=>studentSlotKey(x)===slot);if(i>=0)out[i]={...out[i],...st};else out.push({...st})}return out}
+function clearPendingStudentSlots(){try{localStorage.removeItem("jc_pending_student_slots")}catch{}}
 async function mergeRemoteStudentsBeforePush(){
  if(!cloudEnabled)return;
  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.students&select=item_key,data,updated_at');
  const rows=await r.json(),deleted=studentDeleteSet();
- const localList=(db.students||[]).filter(st=>st&&st.login&&!deleted.has(String(st.login)));
+ const localList=applyPendingStudents(db.students||[]).filter(st=>st&&st.login&&!deleted.has(String(st.login)));
  const slotKey=st=>`${classCompareKey(st?.turma||'')}::${Number(st?.chamada||0)}`;
  const slots=new Map(localList.map(st=>[slotKey(st),st]));
  const logins=new Set(localList.map(st=>String(st.login||'')));
@@ -669,7 +674,8 @@ async function cloudPull(initial=false){
     }
     /* O Supabase é a fonte oficial depois que as alterações locais foram
        confirmadas. */
-    const rebuilt=rebuildCollection(k,grouped[k]);
+    let rebuilt=rebuildCollection(k,grouped[k]);
+    if(k==="students")rebuilt=applyPendingStudents(rebuilt);
     const before=JSON.stringify(db[k]);
     db[k]=rebuilt;
     if(k==="classes")CLASSES=db.classes;
@@ -712,6 +718,7 @@ async function cloudPushDiff(force=false){
   CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
   saveStudentDeleteSet(new Set());
   localStorage.removeItem("jc_students_pending_sync");
+  clearPendingStudentSlots();
   cloudDirty=false;cloudReady=true;cloudLastError="";cloudLastPush=Date.now();
  }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
  finally{cloudPushRunning=false;updateCloudIndicators();if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800)}
@@ -1699,8 +1706,10 @@ async function classSaveStudent(){
     else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};unmarkStudentDeleted(st.login);db.students.push(st)}
   }
   ensureStudentVisibleInClass(st);
-  try{localStorage.setItem("jc_students_pending_sync","1")}catch{}
+  rememberPendingStudent(st);
   persist();
+  const confirmedLocal=(db.students||[]).find(x=>sameClass(x.turma,turma)&&Number(x.chamada)===chamada&&x.login===st.login);
+  if(!confirmedLocal)return toast("Não foi possível confirmar o cadastro do aluno. Nenhuma mensagem de sucesso foi emitida.");
   try{if(document.activeElement&&typeof document.activeElement.blur==="function")document.activeElement.blur()}catch{}
   const photoFile=pendingTeacherStudentPhoto;closeTeacherCamera();clearTeacherStudentPhoto();
   toast(original?"Aluno atualizado.":"Aluno cadastrado e exibido na relação.");classStudentsPage();
@@ -1960,7 +1969,7 @@ function saveStudent(){
   if(existingByCall){
     if(comparableStudentName(existingByCall.nome,turma,chamada)===comparableStudentName(nome,turma,chamada)){
       existingByCall.turma=turma;existingByCall.chamada=chamada;existingByCall.nome=nome;existingByCall.status=existingByCall.status||'Ativo';
-      unmarkStudentDeleted(existingByCall.login);ensureStudentVisibleInClass(existingByCall);try{localStorage.setItem('jc_students_pending_sync','1')}catch{}persist();toast("Aluno salvo e restaurado na relação da turma.");studentsPage();return;
+      unmarkStudentDeleted(existingByCall.login);ensureStudentVisibleInClass(existingByCall);rememberPendingStudent(existingByCall);persist();toast("Aluno salvo e restaurado na relação da turma.");studentsPage();return;
     }
     return toast(`O nº ${chamada} já pertence a ${cleanRegisteredStudentName(existingByCall.nome,turma,chamada)} nesta turma.`);
   }
@@ -1972,7 +1981,7 @@ function saveStudent(){
     toast("Aluno atualizado.");
   }else{
     const cred=createInternalStudentCredentials(nome);
-    const newSt={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};db.students.push(newSt);ensureStudentVisibleInClass(newSt);
+    const newSt={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};db.students.push(newSt);ensureStudentVisibleInClass(newSt);rememberPendingStudent(newSt);
     toast("Aluno cadastrado.");
   }
 
