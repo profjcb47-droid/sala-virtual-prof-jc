@@ -931,9 +931,32 @@ async function assignStudentPhoto(st,file){
  if(oldKey&&oldKey!==newKey)deleteCloudFile(oldKey);
  return true;
 }
-async function loadProfilePhoto(login,targetId){try{const st=db.students.find(x=>x.login===login);const key=st?.photoKey||profilePhotoKey(login);const blob=await getFileBlob(key,!!st?.photoKey);const el=byId(targetId);if(!blob||!el)return;if(el.dataset.photoUrl){try{URL.revokeObjectURL(el.dataset.photoUrl)}catch{}}const url=URL.createObjectURL(blob);el.innerHTML=`<img src="${url}" alt="Foto do aluno">`;el.classList.add('profileReady');el.dataset.photoUrl=url}catch(err){console.warn(err)}}
+const studentPhotoUrlCache=new Map();
+const studentPhotoLoadCache=new Map();
+async function loadProfilePhoto(login,targetId){
+ try{
+  const st=db.students.find(x=>x.login===login),el=byId(targetId);if(!st||!el)return;
+  const key=st.photoKey||profilePhotoKey(login);
+  // Se este elemento já exibe exatamente esta foto, não toca no DOM.
+  if(el.dataset.loadedPhotoKey===key&&el.querySelector('img'))return;
+  let url=studentPhotoUrlCache.get(key);
+  if(!url){
+   let pending=studentPhotoLoadCache.get(key);
+   if(!pending){pending=getFileBlob(key,!!st.photoKey);studentPhotoLoadCache.set(key,pending)}
+   const blob=await pending;
+   studentPhotoLoadCache.delete(key);
+   if(!blob)return;
+   url=URL.createObjectURL(blob);studentPhotoUrlCache.set(key,url);
+  }
+  // A tela pode ter sido redesenhada enquanto a foto carregava.
+  const current=byId(targetId);if(!current)return;
+  if(current.dataset.loadedPhotoKey===key&&current.querySelector('img'))return;
+  current.innerHTML=`<img src="${url}" alt="Foto do aluno">`;
+  current.classList.add('profileReady');current.dataset.loadedPhotoKey=key;
+ }catch(err){console.warn(err)}
+}
 function studentQrLabel(st){if(!st)return '';const raw=String(st.turma||'').replace(/°/g,'º'),m=raw.match(/(\d+).*?([A-Za-z])\s*$/),turma=m?`${m[1]}º${m[2].toUpperCase()}`:raw.replace(/\s+/g,'');const n=String(Number(st.chamada)||st.chamada||'').padStart(2,'0');return `${turma} - ${n}. ${st.nome||''}`.trim()}
-function loadVisibleStudentPhotos(){document.querySelectorAll('[data-photo-login]').forEach((el,i)=>{if(!el.id)el.id='studentPhoto_'+i+'_'+Math.random().toString(36).slice(2,8);loadProfilePhoto(el.dataset.photoLogin,el.id)})}
+function loadVisibleStudentPhotos(){document.querySelectorAll('[data-photo-login]').forEach((el,i)=>{if(!el.id)el.id='studentPhoto_'+i;const st=db.students.find(x=>x.login===el.dataset.photoLogin);const key=st?.photoKey||profilePhotoKey(el.dataset.photoLogin);if(el.dataset.loadedPhotoKey===key&&el.querySelector('img'))return;loadProfilePhoto(el.dataset.photoLogin,el.id)})}
 function setClassStudentsView(mode){S.classStudentsView=mode==='photos'?'photos':'list';classStudentsPage()}
 async function openStudentPhotoLightbox(encodedLogin){
  const login=decodeURIComponent(encodedLogin),st=db.students.find(x=>x.login===login);if(!st)return toast('Aluno não encontrado.');
