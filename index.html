@@ -1433,7 +1433,7 @@ function classStudentsPage(){
   page.innerHTML=`
     <a class="back" href="#" onclick="go('classes');return false">← Gerenciar turmas</a>
     <h1 class="center">${e(S.cls)}</h1><p class="sub">${list.length} alunos cadastrados • em ordem de chamada</p>
-    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha com fotos ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel + fotos</button><button type="button" class="secondary" onclick="downloadStudentCredentials(S.cls)">📥 Baixar credenciais</button><button type="button" class="primary" onclick="saveClassStudentsNow()">💾 Salvar relação</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div><div class="toolrow" style="margin-top:10px;padding-top:10px;border-top:1px solid #dbe7f3"><button type="button" class="secondary" onclick="exportStudentsWordWithPhotos(S.cls)" style="font-weight:800">📄 Word com fotos</button><button type="button" class="secondary" onclick="exportStudentsExcelWithPhotos(S.cls)" style="font-weight:800">📊 Excel com fotos</button></div></div>
+    <div class="panel"><div class="classHeaderActions"><div><b>${e(S.cls)}</b><div class="small muted">Altere a turma, importe uma planilha com fotos ou gerencie os alunos.</div></div><div class="toolrow"><button type="button" class="secondary" onclick="renameCurrentClass()">✏️ Alterar turma</button><button type="button" class="secondary" onclick="byId('classExcelInput').click()">📊 Importar Excel + fotos</button><button type="button" class="secondary" onclick="downloadStudentCredentials(S.cls)">📥 Baixar credenciais</button><button type="button" class="primary" onclick="saveClassStudentsNow()">💾 Salvar relação</button><button type="button" class="danger" onclick="deleteAllStudentsInClass()">🗑 Excluir todos</button><button type="button" class="primary" id="classNewStudentBtn">＋ Cadastrar aluno</button></div><div class="toolrow" style="margin-top:10px;padding-top:10px;border-top:1px solid #dbe7f3"><button type="button" class="secondary" onclick="exportStudentsWordWithPhotos(S.cls)" style="font-weight:800">📄 Word com fotos</button><button type="button" class="secondary" onclick="exportClassQrWord(S.cls)" style="font-weight:800">▦ QR Codes de Vistos em Word</button><button type="button" class="secondary" onclick="exportClassAccessCardsWord(S.cls)" style="font-weight:800">🔐 Credenciais de Acesso em Word</button><button type="button" class="secondary" onclick="exportStudentsExcelWithPhotos(S.cls)" style="font-weight:800">📊 Excel com fotos</button></div></div>
       <input id="classExcelInput" type="file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" style="display:none" onchange="importStudentsExcel(this.files[0]);this.value=''">
       <div class="importExcelHelp small muted"><b>Planilha completa:</b> o sistema reconhece Nº, Nome, Turma/Série e fotos embutidas no Excel. Também entende o padrão <b>9ºB - 30. Nome do aluno</b>. Se a planilha tiver várias turmas, todas podem ser importadas de uma só vez.</div>
       <div id="classImportStatus" class="importProgress"></div>
@@ -1518,6 +1518,66 @@ async function printStudentQr(encodedLogin){
  const login=decodeURIComponent(encodedLogin),st=(db.students||[]).find(s=>s.login===login);if(!st)return toast('Aluno não encontrado.');const value=studentQrCodeValue(st);if(!value)return;
  try{await loadExternalScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',()=>!!window.QRCode)}catch{return toast('Não foi possível carregar o gerador de QR Code.')}
  const host=document.createElement('div');new QRCode(host,{text:value,width:260,height:260,correctLevel:QRCode.CorrectLevel.M});setTimeout(()=>{const img=host.querySelector('img')?.src||host.querySelector('canvas')?.toDataURL('image/png');if(!img)return toast('Não foi possível preparar o QR para impressão.');const w=window.open('','_blank');if(!w)return toast('Permita a abertura da janela de impressão.');w.document.write(`<html><head><title>QR - ${e(st.nome)}</title><style>body{font-family:Arial;text-align:center;padding:35px}img{width:260px;height:260px}h2{margin-bottom:5px}.code{font-family:monospace;font-weight:bold;margin-top:12px}</style></head><body><h2>${e(st.chamada)}. ${e(st.nome)}</h2><div>${e(st.turma)}</div><p><img src="${img}"></p><div class="code">${e(value)}</div><script>onload=()=>setTimeout(()=>print(),250)<\/script></body></html>`);w.document.close()},80)
+}
+
+
+async function exportClassQrWord(turma){
+ const students=(db.students||[]).filter(s=>s.turma===turma&&s.chamada).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+ if(!students.length)return toast('Nenhum aluno cadastrado nesta turma.');
+ try{
+  toast('Preparando QR Codes da turma...');
+  await loadExternalScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',()=>!!window.QRCode);
+  const docxLib=await import('https://esm.sh/docx@9.7.1');
+  const {Document,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,AlignmentType,VerticalAlign,Packer,PageOrientation}=docxLib;
+  const dataUrlToBytes=(url)=>{const b64=String(url).split(',')[1]||'';const bin=atob(b64),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u};
+  const makeQr=st=>new Promise((resolve,reject)=>{try{const host=document.createElement('div');host.style.cssText='position:fixed;left:-9999px;top:-9999px';document.body.appendChild(host);new QRCode(host,{text:studentQrCodeValue(st),width:220,height:220,correctLevel:QRCode.CorrectLevel.M});setTimeout(()=>{try{const canvas=host.querySelector('canvas'),img=host.querySelector('img');const src=canvas?.toDataURL('image/png')||img?.src;if(!src)throw new Error('QR vazio');host.remove();resolve(dataUrlToBytes(src))}catch(e){host.remove();reject(e)}},80)}catch(e){reject(e)}});
+  const qrBytes=[];for(const st of students)qrBytes.push(await makeQr(st));
+  const cells=students.map((st,i)=>new TableCell({verticalAlign:VerticalAlign.CENTER,width:{size:33.33,type:WidthType.PERCENTAGE},margins:{top:100,bottom:100,left:100,right:100},children:[
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:40},children:[new TextRun({text:`${st.chamada}. ${st.nome}`,bold:true,size:18,font:'Arial'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:50},children:[new TextRun({text:turma,bold:true,size:16,font:'Arial'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,children:[new ImageRun({data:qrBytes[i],transformation:{width:125,height:125},type:'png'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{before:30},children:[new TextRun({text:studentQrCodeValue(st),size:13,font:'Arial'})]})
+  ]}));
+  const rows=[];for(let i=0;i<cells.length;i+=3){const group=cells.slice(i,i+3);while(group.length<3)group.push(new TableCell({children:[new Paragraph('')]}));rows.push(new TableRow({children:group,cantSplit:true}))}
+  const doc=new Document({sections:[{properties:{page:{margin:{top:500,right:500,bottom:500,left:500},size:{orientation:PageOrientation.PORTRAIT}}},children:[
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:100},children:[new TextRun({text:`QR Codes — ${turma}`,bold:true,size:24,font:'Arial'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:180},children:[new TextRun({text:'Sala Virtual Prof. JC • Leitor de Vistos',size:16,font:'Arial'})]}),
+   new Table({width:{size:100,type:WidthType.PERCENTAGE},rows})
+  ]}]});
+  const blob=await Packer.toBlob(doc);await downloadValidDocx(blob,`QR_Codes_${safeExportName(turma)}.docx`);toast(`Word com ${students.length} QR Codes gerado.`);
+ }catch(err){console.error(err);toast('Não foi possível gerar o Word com os QR Codes. Verifique a internet e tente novamente.');}
+}
+
+async function exportClassAccessCardsWord(turma){
+ const students=(db.students||[]).filter(s=>s.turma===turma).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome||'').localeCompare(String(b.nome||''),'pt-BR'));
+ if(!students.length)return toast('Nenhum aluno cadastrado nesta turma.');
+ try{
+  toast('Preparando credenciais de acesso em Word...');
+  await loadExternalScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',()=>!!window.QRCode);
+  const docxLib=await import('https://esm.sh/docx@9.7.1');
+  const {Document,Paragraph,TextRun,Table,TableRow,TableCell,ImageRun,WidthType,AlignmentType,VerticalAlign,Packer,PageBreak}=docxLib;
+  const platformUrl='https://sala-virtual-prof-jc.vercel.app/';
+  const dataUrlToBytes=(url)=>{const b64=String(url).split(',')[1]||'';const bin=atob(b64),u=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u};
+  const qrBytes=await new Promise((resolve,reject)=>{try{const host=document.createElement('div');host.style.cssText='position:fixed;left:-9999px;top:-9999px';document.body.appendChild(host);new QRCode(host,{text:platformUrl,width:220,height:220,correctLevel:QRCode.CorrectLevel.M});setTimeout(()=>{try{const canvas=host.querySelector('canvas'),img=host.querySelector('img');const src=canvas?.toDataURL('image/png')||img?.src;if(!src)throw new Error('QR vazio');host.remove();resolve(dataUrlToBytes(src))}catch(e){host.remove();reject(e)}},80)}catch(e){reject(e)}});
+  const card=st=>new TableCell({verticalAlign:VerticalAlign.CENTER,width:{size:33.33,type:WidthType.PERCENTAGE},margins:{top:55,bottom:55,left:65,right:65},children:[
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:15},children:[new TextRun({text:'SALA VIRTUAL PROF. JC',bold:true,size:14,font:'Arial'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:20},children:[new TextRun({text:`${st.chamada||''}. ${st.nome||''}`,bold:true,size:13,font:'Arial'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:20},children:[new TextRun({text:st.turma||turma,size:12,font:'Arial'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:15},children:[new ImageRun({data:qrBytes,transformation:{width:82,height:82},type:'png'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:5},children:[new TextRun({text:`Login: ${st.login||'—'}`,bold:true,size:12,font:'Arial'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,spacing:{after:5},children:[new TextRun({text:`Senha: ${String(st.senha||'—')}`,bold:true,size:12,font:'Arial'})]}),
+   new Paragraph({alignment:AlignmentType.CENTER,children:[new TextRun({text:'Aponte a câmera para o QR e entre com seu login e senha.',size:9,font:'Arial'})]})
+  ]});
+  const children=[];
+  for(let start=0;start<students.length;start+=12){
+   if(start)children.push(new Paragraph({children:[new PageBreak()]}));
+   const batch=students.slice(start,start+12),rows=[];
+   for(let i=0;i<batch.length;i+=3){const cells=batch.slice(i,i+3).map(card);while(cells.length<3)cells.push(new TableCell({children:[new Paragraph('')]}));rows.push(new TableRow({children:cells,cantSplit:true,height:{value:2450,rule:'atLeast'}}))}
+   children.push(new Table({width:{size:100,type:WidthType.PERCENTAGE},rows}));
+  }
+  const doc=new Document({sections:[{properties:{page:{margin:{top:260,right:260,bottom:260,left:260}}},children}]});
+  const blob=await Packer.toBlob(doc);await downloadValidDocx(blob,`Credenciais_Acesso_${safeExportName(turma)}.docx`);toast(`Word com ${students.length} credenciais gerado — 12 cartões por página.`);
+ }catch(err){console.error(err);toast('Não foi possível gerar o Word com as credenciais. Verifique a internet e tente novamente.');}
 }
 
 function updateClassQrPreview(){const box=byId('classQrPreview');if(!box)return;const temp={turma:byId('classTurma')?.value||S.cls,chamada:byId('classCall')?.value||'',nome:byId('className')?.value?.trim()||''};box.textContent=`QR individual: ${temp.nome&&temp.chamada?studentQrCodeValue(temp):'—'} • O nome será salvo separadamente.`}
