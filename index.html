@@ -877,6 +877,39 @@ async function assignStudentPhoto(st,file){
  return true;
 }
 async function loadProfilePhoto(login,targetId){try{const st=db.students.find(x=>x.login===login);const key=st?.photoKey||profilePhotoKey(login);const blob=await getFileBlob(key,!!st?.photoKey);const el=byId(targetId);if(!blob||!el)return;if(el.dataset.photoUrl){try{URL.revokeObjectURL(el.dataset.photoUrl)}catch{}}const url=URL.createObjectURL(blob);el.innerHTML=`<img src="${url}" alt="Foto do aluno">`;el.classList.add('profileReady');el.dataset.photoUrl=url}catch(err){console.warn(err)}}
+let studentPhotoCloudMigrationRunning=false;
+async function syncLegacyStudentPhotosToCloud(){
+ if(studentPhotoCloudMigrationRunning||!navigator.onLine||S.user?.role!=="teacher")return;
+ studentPhotoCloudMigrationRunning=true;
+ let changed=false,uploaded=0;
+ try{
+  for(const st of (db.students||[])){
+   if(!st?.login)continue;
+   // Fotos antigas eram guardadas somente neste navegador com a chave profile_LOGIN.
+   // Se ainda não há photoKey, aproveita essa cópia local e a publica no Storage sem alterar o aluno.
+   if(!st.photoKey){
+    const legacyKey=profilePhotoKey(st.login);
+    let local=null;try{local=await getFileBlobLocal(legacyKey)}catch{}
+    if(local){
+     try{
+      await uploadCloudFile(legacyKey,local);
+      st.photoKey=legacyKey;st.hasPhoto=true;st.photoUpdatedAt=Number(st.photoUpdatedAt||Date.now());
+      changed=true;uploaded++;
+     }catch(err){console.warn('Não foi possível migrar a foto de '+st.login,err)}
+    }
+   }else{
+    // Se a referência já existe mas o arquivo só ficou neste computador, garante a cópia remota.
+    let local=null;try{local=await getFileBlobLocal(st.photoKey)}catch{}
+    if(local&&sessionStorage.getItem('jc_photo_uploaded_'+st.photoKey)!=='1'){
+     try{await uploadCloudFile(st.photoKey,local);sessionStorage.setItem('jc_photo_uploaded_'+st.photoKey,'1');uploaded++}catch(err){console.warn('Não foi possível confirmar a foto remota de '+st.login,err)}
+    }
+   }
+  }
+  if(changed){persist();await cloudPushDiff();}
+  if(uploaded)console.info(uploaded+' foto(s) de alunos confirmadas na nuvem.');
+ }finally{studentPhotoCloudMigrationRunning=false}
+}
+
 function studentQrLabel(st){if(!st)return '';const raw=String(st.turma||'').replace(/°/g,'º'),m=raw.match(/(\d+).*?([A-Za-z])\s*$/),turma=m?`${m[1]}º${m[2].toUpperCase()}`:raw.replace(/\s+/g,'');const n=String(Number(st.chamada)||st.chamada||'').padStart(2,'0');return `${turma} - ${n}. ${st.nome||''}`.trim()}
 function studentQrCodeValue(st){if(!st)return '';const raw=String(st.turma||'').replace(/°/g,'º'),m=raw.match(/(\d+).*?([A-Za-z])\s*$/);if(!m||!Number(st.chamada))return '';return `ALUNO|${m[1]}${m[2].toUpperCase()}|${Number(st.chamada)}`}
 function loadVisibleStudentPhotos(){document.querySelectorAll('[data-photo-login]').forEach((el,i)=>{if(!el.id)el.id='studentPhoto_'+i+'_'+Math.random().toString(36).slice(2,8);loadProfilePhoto(el.dataset.photoLogin,el.id)})}
@@ -1498,6 +1531,7 @@ function classStudentsPage(){
     ${S.classStudentsView==='photos'?photoHtml:listHtml}`;
   byId("classNewStudentBtn").onclick=()=>classOpenEditor();
   setTimeout(loadVisibleStudentPhotos,0);
+  setTimeout(syncLegacyStudentPhotosToCloud,250);
 }
 
 async function saveClassStudentsNow(){
