@@ -1387,11 +1387,12 @@ async function createClass(){
 function classesPage(){
   refreshClassesRef();
   const all=Array.isArray(db.students)?db.students:[];
-  // Conta por turma normalizada apenas para exibição. Não altera, move ou exclui nenhum aluno.
-  const classInfo=CLASSES.map(c=>{
-    const canonical=normalizeImportedClass(c);
-    return {turma:c,quantidade:all.filter(s=>normalizeImportedClass(s.turma)===canonical).length};
-  });
+  // Usa exatamente o mesmo filtro da relação exibida dentro de cada turma.
+  // Esta contagem é somente visual: não altera, move, recria ou exclui alunos.
+  const classInfo=CLASSES.map(c=>({
+    turma:c,
+    quantidade:all.filter(s=>s.turma===c).length
+  }));
   page.innerHTML=`
     <a class="back" href="#" onclick="history.replaceState(null,'',location.pathname);go('teacher');return false">← Área do professor</a>
     <h1 class="center">Gerenciar turmas</h1>
