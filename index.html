@@ -655,8 +655,15 @@ async function cloudPull(initial=false){
        pelas acoes explicitas que marcam studentDeleteKeys. */
     if(k==="students"){
       const merged=new Map();
-      for(const st of (rebuilt||[]))if(st&&st.login)merged.set(String(st.login),st);
-      for(const st of (db.students||[]))if(st&&st.login&&!studentDeleteKeys.has(String(st.login)))merged.set(String(st.login),st);
+      // A nuvem e a fonte oficial para alunos que ja existem nela.
+      // Registros locais entram apenas quando ainda nao existem remotamente (ex.: cadastro novo aguardando envio).
+      // Isso impede que um celular com cache antigo sobrescreva nome, status ou photoKey mais recentes salvos no computador.
+      for(const st of (rebuilt||[]))if(st&&st.login&&!studentDeleteKeys.has(String(st.login)))merged.set(String(st.login),st);
+      for(const st of (db.students||[])){
+        if(!st||!st.login||studentDeleteKeys.has(String(st.login)))continue;
+        const key=String(st.login);
+        if(!merged.has(key))merged.set(key,st);
+      }
       rebuilt=[...merged.values()].sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
     }
     const before=JSON.stringify(db[k]);
@@ -1824,8 +1831,10 @@ async function classSaveStudent(){
   if(!result.ok)return toast(result.msg);
   let photoOk=true;
   if(pendingTeacherStudentPhoto){try{await assignStudentPhoto(result.st,pendingTeacherStudentPhoto);persist()}catch(err){photoOk=false;console.error(err)}}
+  // Confirma cadastro/edicao e a referencia da foto na nuvem antes de concluir.
+  // Assim outro aparelho recebe automaticamente o mesmo registro e photoKey, sem depender de "Salvar relacao".
+  await syncNow(false);
   closeTeacherCamera();clearTeacherStudentPhoto();
-  // A lista e redesenhada a partir do registro local ja salvo; a nuvem sincroniza em segundo plano.
   classStudentsPage();
   toast(photoOk?(result.isEdit?"Aluno atualizado.":"Aluno cadastrado."):(result.isEdit?"Aluno atualizado, mas a foto não foi enviada.":"Aluno cadastrado, mas a foto não foi enviada."));
 }
