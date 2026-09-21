@@ -569,6 +569,14 @@ const CLOUD_SYNC_VERSION="3.0";
 let cloudEnabled=true,cloudReady=false,cloudDirty=false,cloudPushTimer=null,cloudPushRunning=false,cloudPullRunning=false,cloudLastError="",cloudLastPull=0,cloudLastPush=0;
 let studentExcelImportInProgress=false;
 const cloudShadow={};
+/* Exclusões de alunos são explícitas. A ausência de um aluno na cópia local nunca
+   pode ser interpretada como ordem para apagá-lo da nuvem. Isso impede que um
+   cadastro/importação em uma turma apague alunos de outras turmas. */
+let studentDeleteKeys=new Set(JSON.parse(localStorage.getItem("jc_student_delete_keys")||"[]"));
+function saveStudentDeleteKeys(){localStorage.setItem("jc_student_delete_keys",JSON.stringify([...studentDeleteKeys]))}
+function markStudentDeleted(login){if(login){studentDeleteKeys.add(String(login));saveStudentDeleteKeys()}}
+function unmarkStudentDeleted(login){if(login&&studentDeleteKeys.delete(String(login)))saveStudentDeleteKeys()}
+
 
 function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
 function stableKeyForItem(collection,item,index){
@@ -640,7 +648,17 @@ async function cloudPull(initial=false){
     }
     /* O Supabase é a fonte oficial depois que as alterações locais foram
        confirmadas. */
-    const rebuilt=rebuildCollection(k,grouped[k]);
+    let rebuilt=rebuildCollection(k,grouped[k]);
+    /* ALUNOS: sincronizacao aditiva e nao destrutiva. Registros remotos e locais
+       sao unidos pela chave de login. Um cadastro novo nunca substitui a lista
+       inteira nem remove colegas de qualquer turma. Exclusoes continuam somente
+       pelas acoes explicitas que marcam studentDeleteKeys. */
+    if(k==="students"){
+      const merged=new Map();
+      for(const st of (rebuilt||[]))if(st&&st.login)merged.set(String(st.login),st);
+      for(const st of (db.students||[]))if(st&&st.login&&!studentDeleteKeys.has(String(st.login)))merged.set(String(st.login),st);
+      rebuilt=[...merged.values()].sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
+    }
     const before=JSON.stringify(db[k]);
     db[k]=rebuilt;
     if(k==="classes")CLASSES=db.classes;
@@ -670,7 +688,14 @@ async function cloudPushDiff(force=false){
   for(const k of CLOUD_COLLECTIONS){
     const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
     current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
-    Object.keys(shadow).forEach(key=>{if(!current.has(key))deletes.push([k,key])});
+    if(k==="students"){
+      /* Para alunos, só apagamos chaves marcadas por uma ação explícita de exclusão.
+         Nunca apagamos por diferença entre listas, pois uma lista local pode estar
+         incompleta durante sincronização/importação. */
+      studentDeleteKeys.forEach(key=>deletes.push([k,key]));
+    }else{
+      Object.keys(shadow).forEach(key=>{if(!current.has(key))deletes.push([k,key])});
+    }
   }
   if(upserts.length){
     await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(upserts)});
@@ -680,6 +705,7 @@ async function cloudPushDiff(force=false){
   }
   CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
   localStorage.removeItem("jc_students_pending_sync");
+  if(studentDeleteKeys.size){studentDeleteKeys.clear();saveStudentDeleteKeys()}
   cloudDirty=false;cloudReady=true;cloudLastError="";cloudLastPush=Date.now();
  }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
  finally{cloudPushRunning=false;updateCloudIndicators();if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800)}
@@ -928,7 +954,7 @@ window.addEventListener("hashchange",keepCleanUrl);
 function renderLogin(){
 forceCloseNavigation();
 root.innerHTML=`<section class="loginPage"><div class="loginBox"><img class="loginLogo" src="${LOGO_LOGIN}" alt="CEPI Jardim Tiradentes"><h1 class="loginTitle">Sala Virtual Prof. JC</h1><p class="muted">Bem-vindo à nossa sala virtual, Prof. JC!</p><div class="role"><button id="rStu" class="active">Aluno</button><button id="rTea">Professor</button></div><label>Usuário</label><input id="loginU" autocomplete="username"><label>Senha</label><input id="loginP" type="password" autocomplete="current-password"><button class="primary" style="width:100%;margin-top:14px" id="enter">Entrar</button><div class="links"><a href="#" id="help">Fale com o professor</a><a href="#" id="install">Instalar app no celular</a></div></div></section>`;rStu.onclick=()=>{S.role="student";rStu.classList.add("active");rTea.classList.remove("active")};rTea.onclick=()=>{S.role="teacher";rTea.classList.add("active");rStu.classList.remove("active")};enter.onclick=login;loginP.addEventListener("keydown",x=>{if(x.key==="Enter")login()});help.onclick=x=>{x.preventDefault();toast("Procure o Prof. JC para recuperar seu acesso.")};install.onclick=x=>{x.preventDefault();toast("No celular, use 'Adicionar à tela inicial' no navegador.")}}
-function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u===T.login&&p===T.senha){S.user=T;S.page="teacher";setTimeout(()=>clearStudentRegistrationsOnce(),0)}else if(u===COORD.login&&p===COORD.senha){S.user=COORD;S.page="coordinator"}else return toast("Usuário ou senha inválidos.")}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}try{sessionStorage.removeItem("jc_highlight_dismissed")}catch{}saveSessionState();render();if(S.user?.role==='student'||S.user?.role==='coordinator')setTimeout(showStudentHighlight,450)}
+function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u===T.login&&p===T.senha){S.user=T;S.page="teacher"}else if(u===COORD.login&&p===COORD.senha){S.user=COORD;S.page="coordinator"}else return toast("Usuário ou senha inválidos.")}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}try{sessionStorage.removeItem("jc_highlight_dismissed")}catch{}saveSessionState();render();if(S.user?.role==='student'||S.user?.role==='coordinator')setTimeout(showStudentHighlight,450)}
 
 function visitDateKey(ts=Date.now()){const d=new Date(ts),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${day}`}
 function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}
@@ -1354,7 +1380,7 @@ async function clearStudentRegistrationsOnce(){
  }
 }
 
-function teacher(){setTimeout(()=>clearStudentRegistrationsOnce(),0);const unread=teacherUnreadCount(),unreadMsgs=teacherUnreadMessageCount(),unreadSubs=teacherUnreadSubmissionItems().length;const cards=[["⭐","Leitor de Vistos","Registre rapidamente os vistos dos alunos pelo QR Code, com limite de 1 por dia.","visitsTeacher"],["🧠","Criar atividades e questionários","Crie avaliações manualmente, com imagens, gabarito e pontuação.","activities"],["📈","Notas das atividades online","Acompanhe por turma a soma, a média e o histórico das atividades realizadas.","gradesOverview"],["📚","Biblioteca Virtual","Cadastre os links do Google Drive usados nos três ícones da biblioteca dos alunos.","virtualLibraryTeacher"],["🎥","Videoaulas","Cadastre vários vídeos do Google Drive ou YouTube para uma, várias ou todas as turmas.","videosTeacher"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["📢","Publicar mensagem","Envie avisos importantes para uma, várias ou todas as turmas.","announcementsTeacher"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["📄","Relatórios","Crie relatórios da turma e individuais, organizados por bimestre.","reports"],["🏫","Gerenciar turmas","Abra cada turma do 9º Ano e gerencie os respectivos alunos.","classes"],["📣","Avisos em Destaque","Crie avisos com imagem para aparecer no próximo login dos alunos e da Coordenação até a data final.","highlightsTeacher"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="if('${x[3]}'==='classes'){openClassesFromHash()}else{go('${x[3]}')}"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='announcementsTeacher'?` `:''}${x[3]==='messages'&&unreadMsgs?`<span class="cardBadge">${unreadMsgs}</span>`:''}${x[3]==='submitted'&&unreadSubs?`<span class="cardBadge">${unreadSubs}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
+function teacher(){const unread=teacherUnreadCount(),unreadMsgs=teacherUnreadMessageCount(),unreadSubs=teacherUnreadSubmissionItems().length;const cards=[["⭐","Leitor de Vistos","Registre rapidamente os vistos dos alunos pelo QR Code, com limite de 1 por dia.","visitsTeacher"],["🧠","Criar atividades e questionários","Crie avaliações manualmente, com imagens, gabarito e pontuação.","activities"],["📈","Notas das atividades online","Acompanhe por turma a soma, a média e o histórico das atividades realizadas.","gradesOverview"],["📚","Biblioteca Virtual","Cadastre os links do Google Drive usados nos três ícones da biblioteca dos alunos.","virtualLibraryTeacher"],["🎥","Videoaulas","Cadastre vários vídeos do Google Drive ou YouTube para uma, várias ou todas as turmas.","videosTeacher"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["📢","Publicar mensagem","Envie avisos importantes para uma, várias ou todas as turmas.","announcementsTeacher"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["📄","Relatórios","Crie relatórios da turma e individuais, organizados por bimestre.","reports"],["🏫","Gerenciar turmas","Abra cada turma do 9º Ano e gerencie os respectivos alunos.","classes"],["📣","Avisos em Destaque","Crie avisos com imagem para aparecer no próximo login dos alunos e da Coordenação até a data final.","highlightsTeacher"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="if('${x[3]}'==='classes'){openClassesFromHash()}else{go('${x[3]}')}"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='announcementsTeacher'?` `:''}${x[3]==='messages'&&unreadMsgs?`<span class="cardBadge">${unreadMsgs}</span>`:''}${x[3]==='submitted'&&unreadSubs?`<span class="cardBadge">${unreadSubs}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
 function byId(id){return document.getElementById(id)}
 
 
@@ -1384,14 +1410,25 @@ async function createClass(){
   if(cloudLastError)toast("Turma salva neste aparelho. A sincronização online será tentada novamente.");
   else toast("Turma salva com sucesso.");
 }
-function classesPage(){
+function studentsInClass(turma){
+  return (Array.isArray(db.students)?db.students:[]).filter(s=>s.turma===turma);
+}
+let classesCountRefreshRunning=false;
+async function classesPage(){
   refreshClassesRef();
+  // Antes de montar os cartões, confirma a coleção atual de alunos com a nuvem.
+  // É apenas leitura/sincronização normal: não exclui, move nem recria aluno algum.
+  if(!classesCountRefreshRunning){
+    classesCountRefreshRunning=true;
+    try{ await syncNow(false); }catch(_){}
+    finally{ classesCountRefreshRunning=false; }
+    refreshClassesRef();
+  }
   const all=Array.isArray(db.students)?db.students:[];
-  // Usa exatamente o mesmo filtro da relação exibida dentro de cada turma.
-  // Esta contagem é somente visual: não altera, move, recria ou exclui alunos.
+  // O cartão e a relação interna usam a MESMA função de seleção da turma.
   const classInfo=CLASSES.map(c=>({
     turma:c,
-    quantidade:all.filter(s=>s.turma===c).length
+    quantidade:studentsInClass(c).length
   }));
   page.innerHTML=`
     <a class="back" href="#" onclick="history.replaceState(null,'',location.pathname);go('teacher');return false">← Área do professor</a>
@@ -1436,7 +1473,7 @@ function classStudentsPage(){
   refreshClassesRef();
   if(!CLASSES.includes(S.cls)&&CLASSES.length)S.cls=CLASSES[0];
   if(!S.classStudentsView)S.classStudentsView='list';
-  const list=(Array.isArray(db.students)?db.students:[]).filter(s=>s.turma===S.cls).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR"));
+  const list=studentsInClass(S.cls).sort((a,b)=>(Number(a.chamada)||999)-(Number(b.chamada)||999)||String(a.nome).localeCompare(String(b.nome),"pt-BR"));
   const listHtml=`<div class="studentTablePanel"><div class="studentTableHead" style="grid-template-columns:64px 1fr 120px 190px"><div>Nº</div><div>Aluno</div><div>Status</div><div>Ações</div></div>${list.map((st,i)=>`<div class="studentTableRow" style="grid-template-columns:64px 1fr 120px 190px"><div class="studentCall">${e(st.chamada||"—")}</div><div class="studentName"><div class="studentNameWithPhoto"><div class="studentMiniPhoto" id="class_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><div><b>${e(st.nome)}</b><div class="small muted">${e(studentQrLabel(st))}</div></div></div></div><div><select aria-label="Status do aluno" onchange="setStudentStatus('${encodeURIComponent(st.login)}',this.value)" style="min-width:105px;font-weight:700;padding:8px 6px;border:1px solid #cbd8e6;border-radius:9px;background:#fff"><option value="Ativo" ${(st.status||'Ativo')==='Ativo'?'selected':''}>Ativo</option><option value="Transf." ${st.status==='Transf.'?'selected':''}>Transf.</option></select></div><div class="studentRowActions"><button type="button" class="secondary" onclick="showStudentQr('${encodeURIComponent(st.login)}')">QR</button><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button><button type="button" class="danger" onclick="classDeleteStudent('${encodeURIComponent(st.login)}')">Excluir</button></div></div>`).join("")||'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>'}</div>`;
   const photoHtml=list.length?`<div class="studentPhotoGrid">${list.map((st,i)=>`<article class="studentPhotoCard"><div class="studentGalleryPhoto" id="gallery_photo_${i}" data-photo-login="${e(st.login)}" title="Clique para ampliar a foto" onclick="openStudentPhotoLightbox('${encodeURIComponent(st.login)}')">${e(st.nome?.[0]||'?')}</div><h4>${e(st.chamada||'—')}. ${e(st.nome)}</h4><div class="studentGalleryLabel">${e(studentQrLabel(st))}</div><div class="studentRowActions"><button type="button" class="secondary" onclick="showStudentQr('${encodeURIComponent(st.login)}')">QR</button><button type="button" class="secondary" onclick="classEditStudent('${encodeURIComponent(st.login)}')">Editar</button></div></article>`).join('')}</div>`:'<div class="empty">Nenhum aluno cadastrado nesta turma.</div>';
   page.innerHTML=`
@@ -1486,6 +1523,7 @@ function deleteAllStudentsInClass(){
   if(!qty)return toast("Esta turma não possui alunos.");
   if(!confirm(`Excluir TODOS os ${qty} alunos de ${S.cls}?\n\nEsta ação removerá os cadastros dos alunos desta turma.`))return;
   if(!confirm("Confirme novamente: deseja realmente apagar todos os alunos desta turma?"))return;
+  db.students.filter(s=>s.turma===S.cls).forEach(s=>markStudentDeleted(s.login));
   db.students=db.students.filter(s=>s.turma!==S.cls);persist();toast("Todos os alunos da turma foram excluídos.");classStudentsPage();
 }
 function deleteCurrentClass(){
@@ -1751,8 +1789,12 @@ async function exportStudentsExcelWithPhotos(turma=''){
 }
 
 function cleanManualStudentName(value){
-  // Cadastro manual novo: o nome e apenas o nome. Nenhuma turma/numero/QR e extraido dele.
-  return String(value||"").replace(/\s+/g," ").trim();
+  // Cadastro manual definitivo: salva somente o nome. Turma e numero vem dos campos proprios.
+  let name=String(value||"").replace(/\s+/g," ").trim();
+  // Compatibilidade apenas de limpeza: se um texto antigo for colado, remove o prefixo;
+  // nunca usa esse prefixo para descobrir turma ou numero.
+  name=name.replace(/^\s*9\s*[º°o]?\s*(?:ano\s*)?[abcefg]\s*[-–—:]\s*\d{1,3}\s*[.\-:]?\s*/i,"").trim();
+  return name;
 }
 function selectedStudentClass(value){
   const raw=String(value||"").trim();
@@ -1770,6 +1812,7 @@ function saveStudentRecordCore({chamada,turma,nome,original=""}){
   }else{
     const cred=createInternalStudentCredentials(nome);
     st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:"Ativo"};
+    unmarkStudentDeleted(st.login);
     db.students.push(st);
   }
   S.cls=turma;
@@ -1788,7 +1831,7 @@ async function classSaveStudent(){
 }
 function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
 function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
-function classDeleteStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;db.students=db.students.filter(s=>s.login!==login);persist();toast("Aluno excluído.");classStudentsPage()}
+function classDeleteStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;markStudentDeleted(login);db.students=db.students.filter(s=>s.login!==login);persist();toast("Aluno excluído.");classStudentsPage()}
 function normalizeHeader(v){return String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª.]/g,"").replace(/[^a-z0-9]+/g," ").trim()}
 function normalizeImportedClass(v){
  const raw=String(v||'').trim();if(!raw)return '';
@@ -1886,11 +1929,11 @@ async function importStudentsExcel(file){
      let existing=db.students.find(s=>s.turma===x.turma&&Number(s.chamada)===Number(x.chamada));
      if(!existing){const byName=db.students.find(s=>s.turma===x.turma&&normalizeVisitText(s.nome)===normalizeVisitText(x.nome));if(byName)existing=byName}
      if(existing){if(normalizeVisitText(existing.nome)!==normalizeVisitText(x.nome))existing.nome=x.nome;existing.turma=x.turma;existing.chamada=x.chamada;updated++;}
-     else{const cred=createInternalStudentCredentials(x.nome);existing={turma:x.turma,chamada:x.chamada,nome:x.nome,login:cred.login,senha:cred.senha};db.students.push(existing);added++;}
+     else{const cred=createInternalStudentCredentials(x.nome);existing={turma:x.turma,chamada:x.chamada,nome:x.nome,login:cred.login,senha:cred.senha};unmarkStudentDeleted(existing.login);db.students.push(existing);added++;}
      if(!db.classes.includes(x.turma))db.classes.push(x.turma);
      if(x.photo){try{await assignStudentPhoto(existing,x.photo);photosSaved++}catch(err){photoErrors++;console.warn('Falha ao importar foto',x.nome,err)}}
    }
-   if(replace){const clsSet=new Set(classes);db.students=db.students.filter(s=>!clsSet.has(s.turma)||incomingKeys.has(`${s.turma}|${Number(s.chamada)}`))}
+   if(replace){const clsSet=new Set(classes);db.students.filter(s=>clsSet.has(s.turma)&&!incomingKeys.has(`${s.turma}|${Number(s.chamada)}`)).forEach(s=>markStudentDeleted(s.login));db.students=db.students.filter(s=>!clsSet.has(s.turma)||incomingKeys.has(`${s.turma}|${Number(s.chamada)}`))}
    refreshClassesRef();
    localStorage.setItem("jc_students_pending_sync","1");
    persist();
@@ -2035,6 +2078,7 @@ function removeStudent(login){
   const stt=db.students.find(x=>x.login===login);
   if(!stt) return toast("Aluno não encontrado.");
   if(!confirm(`Excluir ${stt.nome} da turma ${stt.turma}?`)) return;
+  markStudentDeleted(login);
   db.students=db.students.filter(x=>x.login!==login);
   persist();
   toast("Aluno excluído.");
