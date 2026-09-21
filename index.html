@@ -928,7 +928,7 @@ window.addEventListener("hashchange",keepCleanUrl);
 function renderLogin(){
 forceCloseNavigation();
 root.innerHTML=`<section class="loginPage"><div class="loginBox"><img class="loginLogo" src="${LOGO_LOGIN}" alt="CEPI Jardim Tiradentes"><h1 class="loginTitle">Sala Virtual Prof. JC</h1><p class="muted">Bem-vindo à nossa sala virtual, Prof. JC!</p><div class="role"><button id="rStu" class="active">Aluno</button><button id="rTea">Professor</button></div><label>Usuário</label><input id="loginU" autocomplete="username"><label>Senha</label><input id="loginP" type="password" autocomplete="current-password"><button class="primary" style="width:100%;margin-top:14px" id="enter">Entrar</button><div class="links"><a href="#" id="help">Fale com o professor</a><a href="#" id="install">Instalar app no celular</a></div></div></section>`;rStu.onclick=()=>{S.role="student";rStu.classList.add("active");rTea.classList.remove("active")};rTea.onclick=()=>{S.role="teacher";rTea.classList.add("active");rStu.classList.remove("active")};enter.onclick=login;loginP.addEventListener("keydown",x=>{if(x.key==="Enter")login()});help.onclick=x=>{x.preventDefault();toast("Procure o Prof. JC para recuperar seu acesso.")};install.onclick=x=>{x.preventDefault();toast("No celular, use 'Adicionar à tela inicial' no navegador.")}}
-function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u===T.login&&p===T.senha){S.user=T;S.page="teacher";setTimeout(()=>restoreOfficialStudentsOnce(),0)}else if(u===COORD.login&&p===COORD.senha){S.user=COORD;S.page="coordinator"}else return toast("Usuário ou senha inválidos.")}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}try{sessionStorage.removeItem("jc_highlight_dismissed")}catch{}saveSessionState();render();if(S.user?.role==='student'||S.user?.role==='coordinator')setTimeout(showStudentHighlight,450)}
+function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u===T.login&&p===T.senha){S.user=T;S.page="teacher";setTimeout(()=>clearStudentRegistrationsOnce(),0)}else if(u===COORD.login&&p===COORD.senha){S.user=COORD;S.page="coordinator"}else return toast("Usuário ou senha inválidos.")}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}try{sessionStorage.removeItem("jc_highlight_dismissed")}catch{}saveSessionState();render();if(S.user?.role==='student'||S.user?.role==='coordinator')setTimeout(showStudentHighlight,450)}
 
 function visitDateKey(ts=Date.now()){const d=new Date(ts),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${day}`}
 function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}
@@ -1318,39 +1318,43 @@ async function fixNamedStudentLoginsOnce(){
 }
 
 async function restoreOfficialStudentsOnce(){
- const marker="jc_restore_official_214_v2";
- if(S.user?.role!=="teacher"||localStorage.getItem(marker)==="1")return;
- try{
-  const current=Array.isArray(db.students)?db.students:[];
-  const used=new Set();
-  const restored=[];
-  for(const official of DEFAULT_STUDENTS){
-   let idx=current.findIndex((x,i)=>!used.has(i)&&String(x.turma||"")===official.turma&&Number(x.chamada)===Number(official.chamada));
-   if(idx<0)idx=current.findIndex((x,i)=>!used.has(i)&&String(x.login||"").toLowerCase()===official.login.toLowerCase());
-   const old=idx>=0?current[idx]:null;
-   if(idx>=0)used.add(idx);
-   const merged={...(old||{}),...official};
-   /* A foto não é recriada nem apagada. Se um registro antigo tinha outro login,
-      preservamos explicitamente a chave onde a foto já estava armazenada. */
-   if(old?.photoKey)merged.photoKey=old.photoKey;
-   else if(old?.login&&old.login!==official.login&&(old.hasPhoto||old.photoUpdatedAt))merged.photoKey=profilePhotoKey(old.login);
-   if(old?.hasPhoto!==undefined)merged.hasPhoto=old.hasPhoto;
-   if(old?.photoUpdatedAt!==undefined)merged.photoUpdatedAt=old.photoUpdatedAt;
-   restored.push(merged);
-  }
-  /* Mantém cadastros extras que não pertencem à relação oficial, sem misturá-los
-     nem substituir os 214 alunos restaurados. */
-  current.forEach((x,i)=>{if(!used.has(i)){const occupied=DEFAULT_STUDENTS.some(o=>o.turma===x.turma&&Number(o.chamada)===Number(x.chamada));if(!occupied)restored.push(x)}});
-  db.students=restored;
-  localStorage.setItem("jc_students_pending_sync","1");
-  persist();
-  await cloudPushDiff();
-  if(!cloudDirty){localStorage.setItem(marker,"1");toast("214 alunos e credenciais restaurados pela relação oficial.");if(S.page==="classStudents"||S.page==="classes")setTimeout(render,0);}
-  else toast("Alunos restaurados neste aparelho. A sincronização será concluída quando a internet estiver disponível.");
- }catch(err){console.error(err);toast("Não foi possível concluir a restauração dos alunos agora.")}
+ /* Restauração automática desativada: os novos cadastros de alunos são a fonte oficial. */
+ return;
 }
 
-function teacher(){setTimeout(async()=>{await restoreOfficialStudentsOnce();await fixNamedStudentLoginsOnce()},0);const unread=teacherUnreadCount(),unreadMsgs=teacherUnreadMessageCount(),unreadSubs=teacherUnreadSubmissionItems().length;const cards=[["⭐","Leitor de Vistos","Registre rapidamente os vistos dos alunos pelo QR Code, com limite de 1 por dia.","visitsTeacher"],["🧠","Criar atividades e questionários","Crie avaliações manualmente, com imagens, gabarito e pontuação.","activities"],["📈","Notas das atividades online","Acompanhe por turma a soma, a média e o histórico das atividades realizadas.","gradesOverview"],["📚","Biblioteca Virtual","Cadastre os links do Google Drive usados nos três ícones da biblioteca dos alunos.","virtualLibraryTeacher"],["🎥","Videoaulas","Cadastre vários vídeos do Google Drive ou YouTube para uma, várias ou todas as turmas.","videosTeacher"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["📢","Publicar mensagem","Envie avisos importantes para uma, várias ou todas as turmas.","announcementsTeacher"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["📄","Relatórios","Crie relatórios da turma e individuais, organizados por bimestre.","reports"],["🏫","Gerenciar turmas","Abra cada turma do 9º Ano e gerencie os respectivos alunos.","classes"],["📣","Avisos em Destaque","Crie avisos com imagem para aparecer no próximo login dos alunos e da Coordenação até a data final.","highlightsTeacher"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="if('${x[3]}'==='classes'){openClassesFromHash()}else{go('${x[3]}')}"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='announcementsTeacher'?` `:''}${x[3]==='messages'&&unreadMsgs?`<span class="cardBadge">${unreadMsgs}</span>`:''}${x[3]==='submitted'&&unreadSubs?`<span class="cardBadge">${unreadSubs}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
+async function clearStudentRegistrationsOnce(){
+ const resetCollection="maintenance";
+ const resetKey="students_reset_20260921";
+ if(S.user?.role!=="teacher")return;
+ try{
+  /* O marcador fica na própria nuvem para que a limpeza seja executada uma única vez,
+     mesmo se o professor abrir o programa em outro aparelho. */
+  const check=await cloudRequest('/rest/v1/jc_records?select=item_key&collection=eq.'+encodeURIComponent(resetCollection)+'&item_key=eq.'+encodeURIComponent(resetKey)+'&limit=1');
+  const already=await check.json();
+  if(Array.isArray(already)&&already.length)return;
+  /* Bloqueia a sincronização comum enquanto somente a coleção students é zerada. */
+  studentExcelImportInProgress=true;
+  clearTimeout(cloudPushTimer);cloudPushTimer=null;
+  await cloudRequest('/rest/v1/jc_records?collection=eq.students',{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+  db.students=[];
+  localStorage.setItem('jc_students','[]');
+  localStorage.removeItem('jc_students_pending_sync');
+  cloudShadow.students={};
+  const marker={collection:resetCollection,item_key:resetKey,data:{done:true,at:new Date().toISOString()},updated_at:new Date().toISOString()};
+  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([marker])});
+  cloudDirty=false;cloudReady=true;cloudLastError='';
+  toast('Cadastros de alunos limpos. Você já pode cadastrar os alunos novamente.');
+  if(S.page==='classes'||S.page==='classStudents'||S.page==='access')render();
+ }catch(err){
+  console.error('Falha ao limpar somente os cadastros de alunos:',err);
+  cloudLastError=err.message;
+  toast('Não foi possível concluir a limpeza dos alunos na nuvem. Nenhuma outra área foi alterada.');
+ }finally{
+  studentExcelImportInProgress=false;updateCloudIndicators();
+ }
+}
+
+function teacher(){setTimeout(()=>clearStudentRegistrationsOnce(),0);const unread=teacherUnreadCount(),unreadMsgs=teacherUnreadMessageCount(),unreadSubs=teacherUnreadSubmissionItems().length;const cards=[["⭐","Leitor de Vistos","Registre rapidamente os vistos dos alunos pelo QR Code, com limite de 1 por dia.","visitsTeacher"],["🧠","Criar atividades e questionários","Crie avaliações manualmente, com imagens, gabarito e pontuação.","activities"],["📈","Notas das atividades online","Acompanhe por turma a soma, a média e o histórico das atividades realizadas.","gradesOverview"],["📚","Biblioteca Virtual","Cadastre os links do Google Drive usados nos três ícones da biblioteca dos alunos.","virtualLibraryTeacher"],["🎥","Videoaulas","Cadastre vários vídeos do Google Drive ou YouTube para uma, várias ou todas as turmas.","videosTeacher"],["📤","Enviar arquivos da aula","Envie arquivos, links ou textos com descrição.","content"],["📢","Publicar mensagem","Envie avisos importantes para uma, várias ou todas as turmas.","announcementsTeacher"],["✏️","Editar conteúdo de prova","Atualize os assuntos de cada disciplina.","content"],["💬","Mensagens","Leia e responda às mensagens enviadas pelos alunos.","messages"],["📥","Ver atividades enviadas","Trabalhos enviados por turma, disciplina e aluno.","submitted"],["🗓️","Horário escolar","Cadastre e altere horários, inclusive início e fim.","schedule"],["👥","Quando o aluno entrou no app","Turmas, alunos e último acesso.","access"],["📄","Relatórios","Crie relatórios da turma e individuais, organizados por bimestre.","reports"],["🏫","Gerenciar turmas","Abra cada turma do 9º Ano e gerencie os respectivos alunos.","classes"],["📣","Avisos em Destaque","Crie avisos com imagem para aparecer no próximo login dos alunos e da Coordenação até a data final.","highlightsTeacher"]];page.innerHTML=`<h1 class="center">Área do professor</h1><p class="sub">Gerencie e acompanhe suas turmas.</p><div class="grid">${cards.map(x=>`<article class="card click" onclick="if('${x[3]}'==='classes'){openClassesFromHash()}else{go('${x[3]}')}"><div class="tile">${x[0]}</div><h3>${x[1]}${x[3]==='announcementsTeacher'?` `:''}${x[3]==='messages'&&unreadMsgs?`<span class="cardBadge">${unreadMsgs}</span>`:''}${x[3]==='submitted'&&unreadSubs?`<span class="cardBadge">${unreadSubs}</span>`:''}</h3><p>${x[2]}</p></article>`).join("")}</div>`}
 function byId(id){return document.getElementById(id)}
 
 
