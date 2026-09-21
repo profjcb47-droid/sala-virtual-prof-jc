@@ -1387,7 +1387,11 @@ async function createClass(){
 function classesPage(){
   refreshClassesRef();
   const all=Array.isArray(db.students)?db.students:[];
-  const classInfo=CLASSES.map(c=>({turma:c,quantidade:all.filter(s=>s.turma===c).length}));
+  // Conta por turma normalizada apenas para exibição. Não altera, move ou exclui nenhum aluno.
+  const classInfo=CLASSES.map(c=>{
+    const canonical=normalizeImportedClass(c);
+    return {turma:c,quantidade:all.filter(s=>normalizeImportedClass(s.turma)===canonical).length};
+  });
   page.innerHTML=`
     <a class="back" href="#" onclick="history.replaceState(null,'',location.pathname);go('teacher');return false">← Área do professor</a>
     <h1 class="center">Gerenciar turmas</h1>
@@ -1745,17 +1749,41 @@ async function exportStudentsExcelWithPhotos(turma=''){
   }catch(err){console.error(err);toast('Não foi possível gerar o Excel com fotos. Verifique a internet e tente novamente.');}
 }
 
+function cleanManualStudentName(value){
+  // Cadastro manual novo: o nome e apenas o nome. Nenhuma turma/numero/QR e extraido dele.
+  return String(value||"").replace(/\s+/g," ").trim();
+}
+function selectedStudentClass(value){
+  const raw=String(value||"").trim();
+  return CLASSES.includes(raw)?raw:"";
+}
+function saveStudentRecordCore({chamada,turma,nome,original=""}){
+  chamada=Number(chamada);turma=selectedStudentClass(turma);nome=cleanManualStudentName(nome);
+  if(!Number.isInteger(chamada)||chamada<1||!nome||!turma)return {ok:false,msg:"Preencha nome, número de chamada e turma."};
+  if((db.students||[]).some(s=>s.turma===turma&&Number(s.chamada)===chamada&&String(s.login)!==String(original)))return {ok:false,msg:"Esse número de chamada já existe nessa turma."};
+  let st;
+  if(original){
+    const idx=(db.students||[]).findIndex(s=>String(s.login)===String(original));
+    if(idx<0)return {ok:false,msg:"Aluno não encontrado."};
+    db.students[idx]={...db.students[idx],turma,chamada,nome};st=db.students[idx];
+  }else{
+    const cred=createInternalStudentCredentials(nome);
+    st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:"Ativo"};
+    db.students.push(st);
+  }
+  S.cls=turma;
+  persist(); // salva imediatamente na mesma colecao usada pela lista e agenda a nuvem
+  return {ok:true,st,isEdit:!!original};
+}
 async function classSaveStudent(){
-  const chamada=parseInt(byId("classCall").value,10),turma=byId("classTurma").value,nome=byId("className").value.trim(),original=byId("classEditOriginal").value;
-  if(!chamada||chamada<1||!nome||!turma)return toast("Preencha nome, número de chamada e turma.");
-  if(db.students.some(s=>s.turma===turma&&Number(s.chamada)===chamada&&s.login!==original))return toast("Esse número de chamada já existe nessa turma.");
-  let st=null;
-  if(original){const idx=db.students.findIndex(s=>s.login===original);if(idx<0)return toast("Aluno não encontrado.");db.students[idx]={...db.students[idx],turma,chamada,nome};st=db.students[idx]}
-  else{const cred=createInternalStudentCredentials(nome);st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:'Ativo'};db.students.push(st)}
+  const result=saveStudentRecordCore({chamada:byId("classCall").value,turma:byId("classTurma").value,nome:byId("className").value,original:byId("classEditOriginal").value});
+  if(!result.ok)return toast(result.msg);
   let photoOk=true;
-  if(pendingTeacherStudentPhoto){try{await assignStudentPhoto(st,pendingTeacherStudentPhoto)}catch(err){photoOk=false;console.error(err)}}
-  closeTeacherCamera();clearTeacherStudentPhoto();S.cls=turma;persist();await syncNow(false);
-  toast(photoOk?(original?"Aluno atualizado.":"Aluno cadastrado."):(original?"Aluno atualizado, mas a foto não foi enviada.":"Aluno cadastrado, mas a foto não foi enviada."));classStudentsPage();
+  if(pendingTeacherStudentPhoto){try{await assignStudentPhoto(result.st,pendingTeacherStudentPhoto);persist()}catch(err){photoOk=false;console.error(err)}}
+  closeTeacherCamera();clearTeacherStudentPhoto();
+  // A lista e redesenhada a partir do registro local ja salvo; a nuvem sincroniza em segundo plano.
+  classStudentsPage();
+  toast(photoOk?(result.isEdit?"Aluno atualizado.":"Aluno cadastrado."):(result.isEdit?"Aluno atualizado, mas a foto não foi enviada.":"Aluno cadastrado, mas a foto não foi enviada."));
 }
 function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
 function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
@@ -1991,33 +2019,11 @@ function openStudentEditor(stt=null){
 }
 
 function saveStudent(){
-  const chamada=parseInt(byId("sc").value,10);
-  const turma=byId("st").value;
-  const nome=byId("sn").value.trim();
-  const original=byId("editLoginOriginal").value;
-
-  if(!chamada||chamada<1||!nome||!turma)
-    return toast("Preencha nome, número de chamada e turma.");
-
-  if(db.students.some(x=>x.turma===turma && Number(x.chamada)===chamada && x.login!==original))
-    return toast("Esse número de chamada já está em uso nessa turma.");
-
-  if(original){
-    const idx=db.students.findIndex(x=>x.login===original);
-    if(idx<0) return toast("Aluno não encontrado.");
-    db.students[idx]={...db.students[idx],turma,chamada,nome};
-    toast("Aluno atualizado.");
-  }else{
-    const cred=createInternalStudentCredentials(nome);
-    db.students.push({turma,chamada,nome,login:cred.login,senha:cred.senha});
-    toast("Aluno cadastrado.");
-  }
-
-  S.cls=turma;
-  persist();
+  const result=saveStudentRecordCore({chamada:byId("sc").value,turma:byId("st").value,nome:byId("sn").value,original:byId("editLoginOriginal").value});
+  if(!result.ok)return toast(result.msg);
   studentsPage();
+  toast(result.isEdit?"Aluno atualizado.":"Aluno cadastrado.");
 }
-
 function editStudent(login){
   const stt=db.students.find(x=>x.login===login);
   if(!stt) return toast("Aluno não encontrado.");
