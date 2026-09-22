@@ -574,13 +574,26 @@ const cloudShadow={};
    cadastro/importação em uma turma apague alunos de outras turmas. */
 let studentDeleteKeys=new Set(JSON.parse(localStorage.getItem("jc_student_delete_keys")||"[]"));
 function saveStudentDeleteKeys(){localStorage.setItem("jc_student_delete_keys",JSON.stringify([...studentDeleteKeys]))}
-function markStudentDeleted(login){if(login){studentDeleteKeys.add(String(login));saveStudentDeleteKeys()}}
-function unmarkStudentDeleted(login){if(login&&studentDeleteKeys.delete(String(login)))saveStudentDeleteKeys()}
+function normalizeStudentClassKey(v){const s=String(v||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/°/g,'º').replace(/\s+/g,' ').trim();let m=s.match(/^(\d+)\s*[ºª]?\s*ANO\s*([A-Z])$/);if(!m)m=s.match(/^(\d+)\s*[ºª]?\s*([A-Z])$/);return m?`${m[1]}${m[2]}`:s.replace(/[^A-Z0-9]/g,'')}
+function studentIdentityKey(st){const cls=normalizeStudentClassKey(st?.turma),n=Number(st?.chamada);return cls&&Number.isFinite(n)&&n>0?`${cls}|${n}`:''}
+function mergeStudentCopies(a,b){
+ if(!a)return b?{...b}:a;if(!b)return {...a};
+ // Mantém a credencial do registro-base e aproveita do outro apenas dados que faltam.
+ const out={...a};for(const k of ['nome','turma','chamada','login','senha','status'])if((out[k]===undefined||out[k]===null||out[k]==='')&&b[k]!==undefined)out[k]=b[k];
+ // Foto nunca é descartada: vence a referência com foto mais recente; se só uma tiver foto, ela é preservada.
+ const ap=!!(a.photoKey||a.hasPhoto),bp=!!(b.photoKey||b.hasPhoto),at=Number(a.photoUpdatedAt||0),bt=Number(b.photoUpdatedAt||0);
+ if(bp&&(!ap||bt>=at)){for(const k of ['photoKey','hasPhoto','photoUpdatedAt'])if(b[k]!==undefined)out[k]=b[k]}
+ return out;
+}
+function collapseStudentDuplicates(list){const m=new Map(),extras=[];for(const st of (list||[])){if(!st)continue;const key=studentIdentityKey(st);if(!key){extras.push(st);continue}m.set(key,mergeStudentCopies(m.get(key),st))}return [...m.values(),...extras].sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0))}
+function markStudentDeleted(studentOrKey){const key=typeof studentOrKey==='string'&&studentOrKey.includes('|')?studentOrKey:studentIdentityKey(studentOrKey);if(key){studentDeleteKeys.add(String(key));saveStudentDeleteKeys()}}
+function unmarkStudentDeleted(studentOrKey){const key=typeof studentOrKey==='string'&&studentOrKey.includes('|')?studentOrKey:studentIdentityKey(studentOrKey);if(key&&studentDeleteKeys.delete(String(key)))saveStudentDeleteKeys()}
+let studentLegacyCloudKeys=new Set();
 
 
 function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
 function stableKeyForItem(collection,item,index){
- if(collection==="students")return String(item.login||index);
+ if(collection==="students")return studentIdentityKey(item)||String(item.login||index);
  if(collection==="notes"){if(!item.id)item.id=Date.now()+index+Math.floor(Math.random()*1000);return String(item.id)}
  return String(item.id??index)
 }
@@ -654,24 +667,21 @@ async function cloudPull(initial=false){
        inteira nem remove colegas de qualquer turma. Exclusoes continuam somente
        pelas acoes explicitas que marcam studentDeleteKeys. */
     if(k==="students"){
-      const merged=new Map();
-      // A nuvem e a fonte oficial para alunos que ja existem nela.
-      // Registros locais entram apenas quando ainda nao existem remotamente (ex.: cadastro novo aguardando envio).
-      // Isso impede que um celular com cache antigo sobrescreva nome, status ou photoKey mais recentes salvos no computador.
-      for(const st of (rebuilt||[]))if(st&&st.login&&!studentDeleteKeys.has(String(st.login)))merged.set(String(st.login),st);
-      for(const st of (db.students||[])){
-        if(!st||!st.login||studentDeleteKeys.has(String(st.login)))continue;
-        const key=String(st.login);
-        if(!merged.has(key))merged.set(key,st);
-      }
-      rebuilt=[...merged.values()].sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
+      // Identidade definitiva do aluno: TURMA + NÚMERO. Login deixa de ser chave de sincronização.
+      // Isso impede que computador e celular criem duas cópias do mesmo aluno.
+      const merged=new Map(),extras=[];
+      for(const row of grouped[k]){const st=row.data,key=studentIdentityKey(st);if(!key){extras.push(st);continue}if(studentDeleteKeys.has(key))continue;merged.set(key,mergeStudentCopies(merged.get(key),st));if(String(row.item_key)!==key)studentLegacyCloudKeys.add(String(row.item_key))}
+      for(const st of (db.students||[])){const key=studentIdentityKey(st);if(!key){extras.push(st);continue}if(studentDeleteKeys.has(key))continue;merged.set(key,mergeStudentCopies(merged.get(key),st))}
+      rebuilt=collapseStudentDuplicates([...merged.values(),...extras]);
+      // Se havia duas cópias, a mesclagem preserva a foto e envia uma única ficha canônica.
+      if(studentLegacyCloudKeys.size)cloudDirty=true;
     }
     const before=JSON.stringify(db[k]);
     db[k]=rebuilt;
     if(k==="classes")CLASSES=db.classes;
     localStorage.setItem('jc_'+k,JSON.stringify(db[k]));
     if(before!==JSON.stringify(rebuilt))changed=true;
-    const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
+    const sm={};if(k==="students"){cloudEntries(k).forEach((v,key)=>sm[key]=JSON.stringify(v))}else grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
   }
   cloudReady=true;cloudLastError='';cloudLastPull=Date.now();
   if(cloudDirty)scheduleCloudPush();
@@ -700,6 +710,7 @@ async function cloudPushDiff(force=false){
          Nunca apagamos por diferença entre listas, pois uma lista local pode estar
          incompleta durante sincronização/importação. */
       studentDeleteKeys.forEach(key=>deletes.push([k,key]));
+      studentLegacyCloudKeys.forEach(key=>{if(!current.has(key))deletes.push([k,key])});
     }else{
       Object.keys(shadow).forEach(key=>{if(!current.has(key))deletes.push([k,key])});
     }
@@ -713,12 +724,14 @@ async function cloudPushDiff(force=false){
   CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
   localStorage.removeItem("jc_students_pending_sync");
   if(studentDeleteKeys.size){studentDeleteKeys.clear();saveStudentDeleteKeys()}
+  studentLegacyCloudKeys.clear();
   cloudDirty=false;cloudReady=true;cloudLastError="";cloudLastPush=Date.now();
  }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
  finally{cloudPushRunning=false;updateCloudIndicators();if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800)}
 }
 function scheduleCloudPush(){cloudDirty=true;updateCloudIndicators();clearTimeout(cloudPushTimer);cloudPushTimer=setTimeout(async()=>{await cloudPushDiff();if(!cloudDirty)await cloudPull(false)},120)}
 function persist(){
+ db.students=collapseStudentDuplicates(db.students||[]);
  const nextStudents=JSON.stringify(db.students||[]),prevStudents=localStorage.getItem("jc_students");
  if(prevStudents!==nextStudents)localStorage.setItem("jc_students_pending_sync","1");
  Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));
@@ -1564,7 +1577,7 @@ function deleteAllStudentsInClass(){
   if(!qty)return toast("Esta turma não possui alunos.");
   if(!confirm(`Excluir TODOS os ${qty} alunos de ${S.cls}?\n\nEsta ação removerá os cadastros dos alunos desta turma.`))return;
   if(!confirm("Confirme novamente: deseja realmente apagar todos os alunos desta turma?"))return;
-  db.students.filter(s=>s.turma===S.cls).forEach(s=>markStudentDeleted(s.login));
+  db.students.filter(s=>s.turma===S.cls).forEach(s=>markStudentDeleted(s));
   db.students=db.students.filter(s=>s.turma!==S.cls);persist();toast("Todos os alunos da turma foram excluídos.");classStudentsPage();
 }
 function deleteCurrentClass(){
@@ -1853,7 +1866,7 @@ function saveStudentRecordCore({chamada,turma,nome,original=""}){
   }else{
     const cred=createInternalStudentCredentials(nome);
     st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:"Ativo"};
-    unmarkStudentDeleted(st.login);
+    unmarkStudentDeleted(st);
     db.students.push(st);
   }
   S.cls=turma;
@@ -1874,7 +1887,7 @@ async function classSaveStudent(){
 }
 function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
 function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
-function classDeleteStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;markStudentDeleted(login);db.students=db.students.filter(s=>s.login!==login);persist();toast("Aluno excluído.");classStudentsPage()}
+function classDeleteStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;markStudentDeleted(st);db.students=db.students.filter(s=>s.login!==login);persist();toast("Aluno excluído.");classStudentsPage()}
 function normalizeHeader(v){return String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª.]/g,"").replace(/[^a-z0-9]+/g," ").trim()}
 function normalizeImportedClass(v){
  const raw=String(v||'').trim();if(!raw)return '';
@@ -1972,11 +1985,11 @@ async function importStudentsExcel(file){
      let existing=db.students.find(s=>s.turma===x.turma&&Number(s.chamada)===Number(x.chamada));
      if(!existing){const byName=db.students.find(s=>s.turma===x.turma&&normalizeVisitText(s.nome)===normalizeVisitText(x.nome));if(byName)existing=byName}
      if(existing){if(normalizeVisitText(existing.nome)!==normalizeVisitText(x.nome))existing.nome=x.nome;existing.turma=x.turma;existing.chamada=x.chamada;updated++;}
-     else{const cred=createInternalStudentCredentials(x.nome);existing={turma:x.turma,chamada:x.chamada,nome:x.nome,login:cred.login,senha:cred.senha};unmarkStudentDeleted(existing.login);db.students.push(existing);added++;}
+     else{const cred=createInternalStudentCredentials(x.nome);existing={turma:x.turma,chamada:x.chamada,nome:x.nome,login:cred.login,senha:cred.senha};unmarkStudentDeleted(existing);db.students.push(existing);added++;}
      if(!db.classes.includes(x.turma))db.classes.push(x.turma);
      if(x.photo){try{await assignStudentPhoto(existing,x.photo);photosSaved++}catch(err){photoErrors++;console.warn('Falha ao importar foto',x.nome,err)}}
    }
-   if(replace){const clsSet=new Set(classes);db.students.filter(s=>clsSet.has(s.turma)&&!incomingKeys.has(`${s.turma}|${Number(s.chamada)}`)).forEach(s=>markStudentDeleted(s.login));db.students=db.students.filter(s=>!clsSet.has(s.turma)||incomingKeys.has(`${s.turma}|${Number(s.chamada)}`))}
+   if(replace){const clsSet=new Set(classes);db.students.filter(s=>clsSet.has(s.turma)&&!incomingKeys.has(`${s.turma}|${Number(s.chamada)}`)).forEach(s=>markStudentDeleted(s));db.students=db.students.filter(s=>!clsSet.has(s.turma)||incomingKeys.has(`${s.turma}|${Number(s.chamada)}`))}
    refreshClassesRef();
    localStorage.setItem("jc_students_pending_sync","1");
    persist();
