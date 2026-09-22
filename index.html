@@ -626,6 +626,47 @@ async function cloudRequest(path,options={}){
  if(!r.ok){const text=await r.text().catch(()=>"");throw new Error(`Supabase ${r.status}: ${text||r.statusText}`)}
  return r
 }
+async function reconcileStudentsCloud(){
+ if(!cloudEnabled||cloudPushRunning||cloudPullRunning)return;
+ try{
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.students&select=collection,item_key,data,updated_at&order=item_key.asc');
+  const rows=await r.json();
+  const merged=new Map(),extras=[];
+  // Primeiro incorpora tudo que já está na nuvem.
+  for(const row of rows){
+   const st=row?.data;if(!st)continue;
+   const key=studentIdentityKey(st);
+   if(!key){extras.push(st);continue}
+   if(studentDeleteKeys.has(key))continue;
+   merged.set(key,mergeStudentCopies(merged.get(key),st));
+  }
+  // Depois incorpora o que existe neste aparelho. Ausência local NUNCA exclui remoto.
+  for(const st of (db.students||[])){
+   if(!st)continue;
+   const key=studentIdentityKey(st);
+   if(!key){extras.push(st);continue}
+   if(studentDeleteKeys.has(key))continue;
+   merged.set(key,mergeStudentCopies(merged.get(key),st));
+  }
+  const canonical=collapseStudentDuplicates([...merged.values(),...extras]);
+  const byKey=new Map();
+  canonical.forEach((st,i)=>byKey.set(studentIdentityKey(st)||String(st.login||i),st));
+  // Publica cada ficha canônica. Assim um aluno que existe somente no computador
+  // (ex.: 9º G nº 29–32) passa a existir na nuvem e aparece nos outros aparelhos.
+  const now=new Date().toISOString();
+  const payload=[];
+  byKey.forEach((st,key)=>payload.push({collection:'students',item_key:key,data:st,updated_at:now}));
+  if(payload.length){
+   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(payload)});
+  }
+  const before=JSON.stringify(db.students||[]);
+  db.students=canonical;
+  localStorage.setItem('jc_students',JSON.stringify(db.students));
+  localStorage.removeItem('jc_students_pending_sync');
+  const sm={};byKey.forEach((st,key)=>sm[key]=JSON.stringify(st));cloudShadow.students=sm;
+  if(before!==JSON.stringify(canonical)&&S.user&&!preserveActiveInteraction())render();
+ }catch(err){console.warn('Falha na reconciliação segura dos alunos:',err)}
+}
 async function cloudPull(initial=false){
  if(studentExcelImportInProgress&&!initial)return;
  if(!cloudEnabled||cloudPullRunning||cloudPushRunning)return;
@@ -760,11 +801,12 @@ async function syncNow(showToast=false){
 function cloudStatusText(){if(cloudLastError)return '☁ Sem sincronização';if(cloudDirty||cloudPushRunning)return '☁ Enviando...';if(cloudReady)return '☁ Sincronizado';return '☁ Conectando...'}
 function updateCloudIndicators(){document.querySelectorAll('[data-cloud-status],.cloudStatusBtn').forEach(el=>{el.style.display='none';el.setAttribute('aria-hidden','true')})}
 async function initCloud(){
+ await reconcileStudentsCloud();
  await cloudPull(true);
  setInterval(()=>syncNow(false),1500);
- window.addEventListener('focus',()=>syncNow(false));
- window.addEventListener('online',()=>syncNow(false));
- document.addEventListener('visibilitychange',()=>{if(!document.hidden)syncNow(false)});
+ window.addEventListener('focus',async()=>{await reconcileStudentsCloud();await syncNow(false)});
+ window.addEventListener('online',async()=>{await reconcileStudentsCloud();await syncNow(false)});
+ document.addEventListener('visibilitychange',async()=>{if(!document.hidden){await reconcileStudentsCloud();await syncNow(false)}});
 }
 
 function coordNotificationKey(type,id){return `${type}:${id}`}
