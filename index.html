@@ -622,6 +622,34 @@ async function saveVisitLedger(extraVisits=[]){
  db.visits=visits;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
  return visits;
 }
+let directVisitSyncRunning=false;
+async function syncVisitsDirect(){
+ if(!cloudEnabled||directVisitSyncRunning||!S.user)return;
+ directVisitSyncRunning=true;
+ try{
+  // Canal exclusivo dos vistos: não depende do estado da sincronização geral.
+  // Primeiro publica tudo que este aparelho conhece, depois relê a coleção inteira.
+  const local=Array.isArray(db.visits)?db.visits.filter(v=>v&&v.id!==undefined):[];
+  if(local.length){
+   const now=new Date().toISOString();
+   const payload=local.map(v=>({collection:'visits',item_key:String(v.id),data:v,updated_at:now}));
+   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(payload)});
+  }
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc&_ts='+Date.now());
+  const rows=await r.json();
+  const remote=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&v.id!==undefined);
+  const merged=mergeVisitLists(local,remote);
+  const changed=JSON.stringify(merged)!==JSON.stringify(db.visits||[]);
+  db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+  // Mantém também o livro compartilhado como redundância, sem depender dele para sincronizar.
+  saveVisitLedger(merged).catch(()=>{});
+  if(changed){
+   if(S.user?.role==='student'){const vc=document.getElementById('student_visit_count');if(vc)vc.textContent=String(visitTotal(S.user));if(S.page==='studentVisits')studentVisits();}
+   else if(S.user?.role==='teacher'&&S.page==='visitsTeacher'){refreshVisitCounters();updateVisitRoster();const body=document.getElementById('visitRecentBody');if(body){const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v));body.innerHTML=visitRecentRows(todayRows);}}
+  }
+ }catch(err){console.warn('Falha no canal direto de vistos:',err)}
+ finally{directVisitSyncRunning=false}
+}
 let visitLedgerPullRunning=false;
 async function pullVisitLedger(){
  if(!cloudEnabled||visitLedgerPullRunning||!S.user)return;
@@ -1246,7 +1274,7 @@ async function registerVisitRaw(raw,quiet=false){
  Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));
  cloudDirty=true;updateCloudIndicators();
  const saved=await pushVisitImmediately(visit);
- if(saved){cloudShadow.visits=cloudShadow.visits||{};cloudShadow.visits[String(id)]=JSON.stringify(visit);}
+ if(saved){cloudShadow.visits=cloudShadow.visits||{};cloudShadow.visits[String(id)]=JSON.stringify(visit);await syncVisitsDirect();}
  else scheduleCloudPush();
  if(!quiet)setVisitStudentResult(saved?"ok":"warn",st,saved?"✅ Visto registrado e salvo!":"Visto registrado neste aparelho",saved?`Agora tem ${visitTotal(st)} visto(s)`:"A nuvem ainda não confirmou. O sistema continuará tentando sincronizar.");
  refreshVisitCounters();updateVisitRoster();
@@ -3269,9 +3297,10 @@ window.addEventListener('storage',ev=>{if(ev.key==='jc_messages'){try{db.message
 render();
 setInterval(()=>{if(S.user?.role==='student')pullStudentVisitsOnly()},2000);
 setInterval(()=>{if(S.user)pullVisitLedger()},2000);
-window.addEventListener('focus',()=>{if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user)pullVisitLedger()});
+setInterval(()=>{if(S.user)syncVisitsDirect()},2000);
+window.addEventListener('focus',()=>{if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user){pullVisitLedger();syncVisitsDirect()}});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user)pullVisitLedger()}});
-window.addEventListener('online',()=>{if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user)pullVisitLedger()});
+window.addEventListener('online',()=>{if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user){pullVisitLedger();syncVisitsDirect()}});
 setTimeout(()=>{
  initCloud().finally(()=>{
    if(S.user&&!preserveActiveInteraction())render();
