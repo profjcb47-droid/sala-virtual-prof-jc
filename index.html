@@ -594,7 +594,21 @@ function collapseStudentDuplicates(list){const m=new Map(),extras=[];for(const s
 function markStudentDeleted(studentOrKey){const key=typeof studentOrKey==='string'&&studentOrKey.includes('|')?studentOrKey:studentIdentityKey(studentOrKey);if(key){studentDeleteKeys.add(String(key));saveStudentDeleteKeys()}}
 function unmarkStudentDeleted(studentOrKey){const key=typeof studentOrKey==='string'&&studentOrKey.includes('|')?studentOrKey:studentIdentityKey(studentOrKey);if(key&&studentDeleteKeys.delete(String(key)))saveStudentDeleteKeys()}
 let studentLegacyCloudKeys=new Set();
-
+/* Vistos recém-lidos ficam protegidos até a confirmação da nuvem. Assim uma
+   leitura remota iniciada antes do scan nunca consegue apagar o visto local. */
+let visitPendingKeys=new Set(JSON.parse(localStorage.getItem("jc_visit_pending_keys")||"[]"));
+function saveVisitPendingKeys(){localStorage.setItem("jc_visit_pending_keys",JSON.stringify([...visitPendingKeys]))}
+function markVisitPending(v){if(v?.id!==undefined){visitPendingKeys.add(String(v.id));saveVisitPendingKeys()}}
+function clearVisitPending(id){if(visitPendingKeys.delete(String(id)))saveVisitPendingKeys()}
+async function pushVisitImmediately(v){
+ if(!cloudEnabled||!v)return false;
+ const key=String(v.id);
+ try{
+  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visits',item_key:key,data:v,updated_at:new Date().toISOString()}])});
+  if(!cloudShadow.visits)cloudShadow.visits={};
+  cloudShadow.visits[key]=JSON.stringify(v);clearVisitPending(key);cloudLastPush=Date.now();updateCloudIndicators();return true;
+ }catch(err){cloudLastError=err.message;cloudDirty=true;scheduleCloudPush();console.warn('Falha ao gravar visto imediatamente:',err);return false}
+}
 
 function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
 function stableKeyForItem(collection,item,index){
@@ -705,6 +719,18 @@ async function cloudPull(initial=false){
       cloudDirty=true;
       continue;
     }
+    /* VISTOS: enquanto uma leitura recém-feita ainda aguarda confirmação,
+       preserva-a na cópia local e soma os registros vindos da nuvem. */
+    if(k==="visits"&&visitPendingKeys.size){
+      const remote=rebuildCollection(k,grouped[k]),byId=new Map();
+      (remote||[]).forEach(v=>byId.set(String(v.id),v));
+      (db.visits||[]).forEach(v=>{if(visitPendingKeys.has(String(v.id)))byId.set(String(v.id),v)});
+      const merged=[...byId.values()].sort((a,b)=>Number(b.createdAt||b.id||0)-Number(a.createdAt||a.id||0));
+      const before=JSON.stringify(db.visits||[]);db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+      if(before!==JSON.stringify(merged))changed=true;
+      const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
+      cloudDirty=true;continue;
+    }
     /* O Supabase é a fonte oficial depois que as alterações locais foram
        confirmadas. */
     let rebuilt=rebuildCollection(k,grouped[k]);
@@ -782,6 +808,7 @@ async function cloudPushDiff(force=false){
   localStorage.removeItem("jc_students_pending_sync");
   if(studentDeleteKeys.size){studentDeleteKeys.clear();saveStudentDeleteKeys()}
   studentLegacyCloudKeys.clear();
+  if(visitPendingKeys.size){visitPendingKeys.clear();saveVisitPendingKeys()}
   cloudDirty=false;cloudReady=true;cloudLastError="";cloudLastPush=Date.now();
  }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
  finally{cloudPushRunning=false;updateCloudIndicators();if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800)}
@@ -1103,7 +1130,7 @@ function registerVisitRaw(raw,quiet=false){
  raw=String(raw||"").trim();if(!raw){if(!quiet)setVisitResult("warn","Nenhum QR informado.");return {ok:false,reason:"empty"}}
  const st=findStudentFromQr(raw);if(!st){if(!quiet)setVisitResult("err","Aluno não encontrado","Use o novo QR do aluno (ALUNO|9B|30) ou o formato antigo 9ºB - 30. Nome do aluno.");return {ok:false,reason:"notfound"}}
  const today=visitDateKey();if(visitsForStudent(st).some(v=>v.date===today)){if(!quiet)setVisitStudentResult("warn",st,"Este aluno já recebeu o visto de hoje.",`Total: ${visitTotal(st)} vistos`);return {ok:false,reason:"duplicate",student:st}}
- if(!Array.isArray(db.visits))db.visits=[];const now=Date.now();db.visits.push({id:now+Math.floor(Math.random()*1000),studentKey:visitStudentKey(st),login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,createdAt:now,updatedAt:now,raw:raw.slice(0,500)});persist();/* persist() agenda o envio. Nao fazemos cloudPull aqui: uma leitura remota antes da confirmacao poderia apagar o visto recem-registrado. */if(!quiet)setVisitStudentResult("ok",st,"✅ Visto registrado!",`Agora tem ${visitTotal(st)} visto(s)`);return {ok:true,student:st}
+ if(!Array.isArray(db.visits))db.visits=[];const now=Date.now();const visit={id:now+Math.floor(Math.random()*1000),studentKey:visitStudentKey(st),login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,createdAt:now,updatedAt:now,raw:raw.slice(0,500)};db.visits.push(visit);markVisitPending(visit);persist();/* Grava também o registro individual imediatamente. O envio geral continua como redundância segura. */pushVisitImmediately(visit);if(!quiet)setVisitStudentResult("ok",st,"✅ Visto registrado!",`Agora tem ${visitTotal(st)} visto(s)`);return {ok:true,student:st}
 }
 function registerVisitInput(){
  const input=byId("visitQuickInput");if(!input)return;
