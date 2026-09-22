@@ -578,11 +578,16 @@ function normalizeStudentClassKey(v){const s=String(v||'').toUpperCase().normali
 function studentIdentityKey(st){const cls=normalizeStudentClassKey(st?.turma),n=Number(st?.chamada);return cls&&Number.isFinite(n)&&n>0?`${cls}|${n}`:''}
 function mergeStudentCopies(a,b){
  if(!a)return b?{...b}:a;if(!b)return {...a};
- // Mantém a credencial do registro-base e aproveita do outro apenas dados que faltam.
- const out={...a};for(const k of ['nome','turma','chamada','login','senha','status'])if((out[k]===undefined||out[k]===null||out[k]==='')&&b[k]!==undefined)out[k]=b[k];
- // Foto nunca é descartada: vence a referência com foto mais recente; se só uma tiver foto, ela é preservada.
- const ap=!!(a.photoKey||a.hasPhoto),bp=!!(b.photoKey||b.hasPhoto),at=Number(a.photoUpdatedAt||0),bt=Number(b.photoUpdatedAt||0);
- if(bp&&(!ap||bt>=at)){for(const k of ['photoKey','hasPhoto','photoUpdatedAt'])if(b[k]!==undefined)out[k]=b[k]}
+ // O registro mais recentemente alterado vence nos dados cadastrais. Registros antigos
+ // sem updatedAt continuam compatíveis: nesse caso a cópia que veio primeiro (nuvem) vence.
+ const at=Number(a.updatedAt||0),bt=Number(b.updatedAt||0),base=bt>at?b:a,other=bt>at?a:b;
+ const out={...base};
+ for(const k of ['nome','turma','chamada','login','senha','status'])if((out[k]===undefined||out[k]===null||out[k]==='')&&other[k]!==undefined)out[k]=other[k];
+ out.updatedAt=Math.max(at,bt)||out.updatedAt;
+ // Foto é independente dos demais campos e nunca é descartada.
+ const ap=!!(a.photoKey||a.hasPhoto),bp=!!(b.photoKey||b.hasPhoto),apt=Number(a.photoUpdatedAt||0),bpt=Number(b.photoUpdatedAt||0);
+ const photoSource=bp&&(!ap||bpt>=apt)?b:(ap?a:null);
+ if(photoSource)for(const k of ['photoKey','hasPhoto','photoUpdatedAt'])if(photoSource[k]!==undefined)out[k]=photoSource[k];
  return out;
 }
 function collapseStudentDuplicates(list){const m=new Map(),extras=[];for(const st of (list||[])){if(!st)continue;const key=studentIdentityKey(st);if(!key){extras.push(st);continue}m.set(key,mergeStudentCopies(m.get(key),st))}return [...m.values(),...extras].sort((a,b)=>String(a.turma||'').localeCompare(String(b.turma||''),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0))}
@@ -681,7 +686,18 @@ async function cloudPull(initial=false){
     if(k==="classes")CLASSES=db.classes;
     localStorage.setItem('jc_'+k,JSON.stringify(db[k]));
     if(before!==JSON.stringify(rebuilt))changed=true;
-    const sm={};if(k==="students"){cloudEntries(k).forEach((v,key)=>sm[key]=JSON.stringify(v))}else grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
+    const sm={};
+    if(k==="students"){
+      // O shadow precisa representar o que REALMENTE existe na nuvem, não a lista
+      // já mesclada com este aparelho. Caso contrário, alunos/fotos que só existem
+      // no computador parecem já enviados e nunca são publicados para o celular.
+      const remoteCanonical=new Map();
+      for(const row of grouped[k]){const st=row.data,key=studentIdentityKey(st)||String(row.item_key);if(studentDeleteKeys.has(key))continue;remoteCanonical.set(key,mergeStudentCopies(remoteCanonical.get(key),st))}
+      remoteCanonical.forEach((v,key)=>sm[key]=JSON.stringify(v));
+      const localNow=serializeMap(cloudEntries(k));
+      if(Object.keys(localNow).some(key=>sm[key]!==localNow[key]))cloudDirty=true;
+    }else grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));
+    cloudShadow[k]=sm;
   }
   cloudReady=true;cloudLastError='';cloudLastPull=Date.now();
   if(cloudDirty)scheduleCloudPush();
@@ -710,7 +726,7 @@ async function cloudPushDiff(force=false){
          Nunca apagamos por diferença entre listas, pois uma lista local pode estar
          incompleta durante sincronização/importação. */
       studentDeleteKeys.forEach(key=>deletes.push([k,key]));
-      studentLegacyCloudKeys.forEach(key=>{if(!current.has(key))deletes.push([k,key])});
+      // Chaves antigas/duplicadas não são apagadas automaticamente. A interface as consolida pela identidade Turma + Nº; exclusão física só ocorre por ação explícita do professor.
     }else{
       Object.keys(shadow).forEach(key=>{if(!current.has(key))deletes.push([k,key])});
     }
@@ -887,7 +903,7 @@ async function assignStudentPhoto(st,file){
  // A chave estável impede que computador/celular criem referências diferentes.
  const newKey=studentPhotoStableKey(st);
  await saveFileBlob(newKey,data,true);
- st.hasPhoto=true;st.photoKey=newKey;st.photoUpdatedAt=Date.now();
+ st.hasPhoto=true;st.photoKey=newKey;st.photoUpdatedAt=Date.now();st.updatedAt=Date.now();
  // Não apagamos fotos antigas automaticamente: preservação é prioridade.
  persist();
  await syncNow(false);
@@ -1866,10 +1882,10 @@ function saveStudentRecordCore({chamada,turma,nome,original=""}){
   if(original){
     const idx=(db.students||[]).findIndex(s=>String(s.login)===String(original));
     if(idx<0)return {ok:false,msg:"Aluno não encontrado."};
-    db.students[idx]={...db.students[idx],turma,chamada,nome};st=db.students[idx];
+    db.students[idx]={...db.students[idx],turma,chamada,nome,updatedAt:Date.now()};st=db.students[idx];
   }else{
     const cred=createInternalStudentCredentials(nome);
-    st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:"Ativo"};
+    st={turma,chamada,nome,login:cred.login,senha:cred.senha,status:"Ativo",updatedAt:Date.now()};
     unmarkStudentDeleted(st);
     db.students.push(st);
   }
@@ -1889,7 +1905,7 @@ async function classSaveStudent(){
   classStudentsPage();
   toast(photoOk?(result.isEdit?"Aluno atualizado.":"Aluno cadastrado."):(result.isEdit?"Aluno atualizado, mas a foto não foi enviada.":"Aluno cadastrado, mas a foto não foi enviada."));
 }
-function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
+function setStudentStatus(encodedLogin,status){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");st.status=status==='Transf.'?'Transf.':'Ativo';st.updatedAt=Date.now();persist();syncNow(false);toast(`${st.nome}: ${st.status}`)}
 function classEditStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");classOpenEditor(st)}
 function classDeleteStudent(encodedLogin){const login=decodeURIComponent(encodedLogin),st=db.students.find(s=>s.login===login);if(!st)return toast("Aluno não encontrado.");if(!confirm(`Excluir ${st.nome} da turma ${st.turma}?`))return;markStudentDeleted(st);db.students=db.students.filter(s=>s.login!==login);persist();toast("Aluno excluído.");classStudentsPage()}
 function normalizeHeader(v){return String(v??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª.]/g,"").replace(/[^a-z0-9]+/g," ").trim()}
@@ -1988,8 +2004,8 @@ async function importStudentsExcel(file){
      index++;setClassImportStatus(`Importando ${index}/${students.length}: ${x.turma} - ${String(x.chamada).padStart(2,'0')}. ${x.nome}${x.photo?' • foto':''}`);
      let existing=db.students.find(s=>s.turma===x.turma&&Number(s.chamada)===Number(x.chamada));
      if(!existing){const byName=db.students.find(s=>s.turma===x.turma&&normalizeVisitText(s.nome)===normalizeVisitText(x.nome));if(byName)existing=byName}
-     if(existing){if(normalizeVisitText(existing.nome)!==normalizeVisitText(x.nome))existing.nome=x.nome;existing.turma=x.turma;existing.chamada=x.chamada;updated++;}
-     else{const cred=createInternalStudentCredentials(x.nome);existing={turma:x.turma,chamada:x.chamada,nome:x.nome,login:cred.login,senha:cred.senha};unmarkStudentDeleted(existing);db.students.push(existing);added++;}
+     if(existing){if(normalizeVisitText(existing.nome)!==normalizeVisitText(x.nome))existing.nome=x.nome;existing.turma=x.turma;existing.chamada=x.chamada;existing.updatedAt=Date.now();updated++;}
+     else{const cred=createInternalStudentCredentials(x.nome);existing={turma:x.turma,chamada:x.chamada,nome:x.nome,login:cred.login,senha:cred.senha,status:'Ativo',updatedAt:Date.now()};unmarkStudentDeleted(existing);db.students.push(existing);added++;}
      if(!db.classes.includes(x.turma))db.classes.push(x.turma);
      if(x.photo){try{await assignStudentPhoto(existing,x.photo);photosSaved++}catch(err){photoErrors++;console.warn('Falha ao importar foto',x.nome,err)}}
    }
