@@ -1126,30 +1126,42 @@ function setVisitResult(type,title,detail=""){
 function setVisitStudentResult(type,st,title,detail=""){
  const box=byId('visitResult');if(!box)return;const id='visit_student_photo';box.className=`visitResult ${type} hasStudentPhoto`;box.innerHTML=`<div class="visitStudentPhoto" id="${id}">${e(st?.nome?.[0]||'👤')}</div><div><strong>${e(title)}</strong><small>${e(studentQrLabel(st))}</small>${detail?`<small>${e(detail)}</small>`:''}</div>`;if(st?.login)setTimeout(()=>loadProfilePhoto(st.login,id),0)
 }
-function registerVisitRaw(raw,quiet=false){
+async function registerVisitRaw(raw,quiet=false){
  raw=String(raw||"").trim();if(!raw){if(!quiet)setVisitResult("warn","Nenhum QR informado.");return {ok:false,reason:"empty"}}
  const st=findStudentFromQr(raw);if(!st){if(!quiet)setVisitResult("err","Aluno não encontrado","Use o novo QR do aluno (ALUNO|9B|30) ou o formato antigo 9ºB - 30. Nome do aluno.");return {ok:false,reason:"notfound"}}
  const today=visitDateKey();if(visitsForStudent(st).some(v=>v.date===today)){if(!quiet)setVisitStudentResult("warn",st,"Este aluno já recebeu o visto de hoje.",`Total: ${visitTotal(st)} vistos`);return {ok:false,reason:"duplicate",student:st}}
- if(!Array.isArray(db.visits))db.visits=[];const now=Date.now();const visit={id:now+Math.floor(Math.random()*1000),studentKey:visitStudentKey(st),login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,createdAt:now,updatedAt:now,raw:raw.slice(0,500)};db.visits.push(visit);markVisitPending(visit);persist();/* Grava também o registro individual imediatamente. O envio geral continua como redundância segura. */pushVisitImmediately(visit);if(!quiet)setVisitStudentResult("ok",st,"✅ Visto registrado!",`Agora tem ${visitTotal(st)} visto(s)`);return {ok:true,student:st}
+ if(!Array.isArray(db.visits))db.visits=[];
+ const now=Date.now(),studentKey=visitStudentKey(st),id=`VISTO|${studentKey}|${today}`;
+ const visit={id,studentKey,login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,createdAt:now,updatedAt:now,raw:raw.slice(0,500)};
+ db.visits.push(visit);markVisitPending(visit);
+ // Salva localmente primeiro, mas só confirma visualmente depois de tentar gravar a MESMA chave na nuvem.
+ Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));
+ cloudDirty=true;updateCloudIndicators();
+ const saved=await pushVisitImmediately(visit);
+ if(saved){cloudShadow.visits=cloudShadow.visits||{};cloudShadow.visits[String(id)]=JSON.stringify(visit);}
+ else scheduleCloudPush();
+ if(!quiet)setVisitStudentResult(saved?"ok":"warn",st,saved?"✅ Visto registrado e salvo!":"Visto registrado neste aparelho",saved?`Agora tem ${visitTotal(st)} visto(s)`:"A nuvem ainda não confirmou. O sistema continuará tentando sincronizar.");
+ refreshVisitCounters();updateVisitRoster();
+ return {ok:true,saved,student:st}
 }
-function registerVisitInput(){
+async function registerVisitInput(){
  const input=byId("visitQuickInput");if(!input)return;
  const raw=input.value.trim();if(!raw)return;
- registerVisitRaw(raw);input.value="";input.focus();refreshVisitCounters()
+ input.disabled=true;try{await registerVisitRaw(raw);input.value=""}finally{input.disabled=false;input.focus()}
 }
 function visitQuickKey(ev){if(ev.key==="Enter"){ev.preventDefault();registerVisitInput()}}
 function visitQuickPaste(){setTimeout(()=>registerVisitInput(),30)}
 async function pasteVisitFromClipboard(){
  try{const text=await navigator.clipboard.readText();if(!text)return setVisitResult("warn","A área de transferência está vazia.");const input=byId("visitQuickInput");if(input){input.value=text;registerVisitInput()}}catch{setVisitResult("warn","Não consegui acessar a área de transferência.","Toque no campo e use Colar.")}
 }
-function processVisitBatch(){
+async function processVisitBatch(){
  const ta=byId("visitBatch");if(!ta)return;
  const lines=ta.value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
  if(!lines.length)return setVisitResult("warn","Cole uma ou mais leituras, uma por linha.");
- let added=0,duplicates=0,notfound=0;
- for(const line of lines){const r=registerVisitRaw(line,true);if(r.ok)added++;else if(r.reason==="duplicate")duplicates++;else notfound++}
- ta.value="";persist();refreshVisitCounters();
- setVisitResult(added?"ok":"warn",`${added} visto(s) registrado(s).`,`${duplicates} repetido(s) hoje • ${notfound} não encontrado(s)`);
+ let added=0,saved=0,duplicates=0,notfound=0;ta.disabled=true;
+ try{for(const line of lines){const r=await registerVisitRaw(line,true);if(r.ok){added++;if(r.saved)saved++}else if(r.reason==="duplicate")duplicates++;else notfound++}}finally{ta.disabled=false}
+ ta.value="";refreshVisitCounters();updateVisitRoster();
+ setVisitResult(added?"ok":"warn",`${added} visto(s) registrado(s).`,`${saved} confirmado(s) na nuvem • ${duplicates} repetido(s) hoje • ${notfound} não encontrado(s)`);
 }
 function deleteVisit(id){
  const v=(db.visits||[]).find(x=>String(x.id)===String(id));if(!v)return;
@@ -1213,8 +1225,8 @@ async function readVisitQrOnce(){
   if(!raw){
    setVisitResult("warn","QR Code não encontrado","Aponte a câmera para o QR e toque novamente em Fazer leitura.");
   }else{
-   const reg=registerVisitRaw(raw);if(reg?.ok)playVisitScanBeep();
-   refreshVisitCounters();
+   const reg=await registerVisitRaw(raw);if(reg?.ok)playVisitScanBeep();
+   refreshVisitCounters();updateVisitRoster();
   }
  }catch(err){
   setVisitResult("err","Não consegui ler o QR Code.","Tente aproximar ou afastar um pouco o celular.");
@@ -1303,7 +1315,8 @@ function visitStudentNumber(st){
  return raw===""?"—":raw
 }
 function visitRosterRows(className){
- const students=(db.students||[]).filter(st=>st.turma===className).sort((a,b)=>{
+ const classKey=normalizeStudentClassKey(className);
+ const students=(db.students||[]).filter(st=>normalizeStudentClassKey(st.turma)===classKey).sort((a,b)=>{
    const na=Number(a.chamada),nb=Number(b.chamada);
    if(Number.isFinite(na)&&Number.isFinite(nb)&&na!==nb)return na-nb;
    return String(a.nome||"").localeCompare(String(b.nome||""),"pt-BR")
