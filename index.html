@@ -600,6 +600,49 @@ let visitPendingKeys=new Set(JSON.parse(localStorage.getItem("jc_visit_pending_k
 function saveVisitPendingKeys(){localStorage.setItem("jc_visit_pending_keys",JSON.stringify([...visitPendingKeys]))}
 function markVisitPending(v){if(v?.id!==undefined){visitPendingKeys.add(String(v.id));saveVisitPendingKeys()}}
 function clearVisitPending(id){if(visitPendingKeys.delete(String(id)))saveVisitPendingKeys()}
+const VISIT_LEDGER_COLLECTION='visitLedger',VISIT_LEDGER_KEY='global';
+function mergeVisitLists(...lists){
+ const m=new Map();
+ for(const list of lists)for(const v of (Array.isArray(list)?list:[])){
+  if(!v||v.id===undefined)continue;
+  const key=String(v.id),old=m.get(key);
+  if(!old||Number(v.updatedAt||v.createdAt||0)>=Number(old.updatedAt||old.createdAt||0))m.set(key,v);
+ }
+ return [...m.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
+}
+async function fetchVisitLedger(){
+ const r=await cloudRequest('/rest/v1/jc_records?collection=eq.'+VISIT_LEDGER_COLLECTION+'&item_key=eq.'+VISIT_LEDGER_KEY+'&select=data,updated_at&limit=1&_ts='+Date.now());
+ const rows=await r.json();
+ return Array.isArray(rows)&&rows[0]?.data?.visits?rows[0].data.visits:[];
+}
+async function saveVisitLedger(extraVisits=[]){
+ const remote=await fetchVisitLedger().catch(()=>[]);
+ const visits=mergeVisitLists(remote,db.visits||[],extraVisits);
+ await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_LEDGER_COLLECTION,item_key:VISIT_LEDGER_KEY,data:{visits,updatedAt:Date.now()},updated_at:new Date().toISOString()}])});
+ db.visits=visits;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+ return visits;
+}
+let visitLedgerPullRunning=false;
+async function pullVisitLedger(){
+ if(!cloudEnabled||visitLedgerPullRunning||!S.user)return;
+ visitLedgerPullRunning=true;
+ try{
+  const remote=await fetchVisitLedger();
+  if(remote.length){
+   const merged=mergeVisitLists(db.visits||[],remote);
+   if(JSON.stringify(merged)!==JSON.stringify(db.visits||[])){
+    db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+    if(S.user?.role==='student'){
+     const vc=document.getElementById('student_visit_count');if(vc)vc.textContent=String(visitTotal(S.user));
+     if(S.page==='studentVisits')studentVisits();
+    }else if(S.user?.role==='teacher'&&S.page==='visitsTeacher'){
+     refreshVisitCounters();updateVisitRoster();
+    }
+   }
+  }
+ }catch(err){console.warn('Falha ao atualizar livro compartilhado de vistos:',err)}
+ finally{visitLedgerPullRunning=false}
+}
 async function pushVisitImmediately(v){
  if(!cloudEnabled||!v)return false;
  const key=String(v.id);
@@ -609,6 +652,8 @@ async function pushVisitImmediately(v){
   const check=await cloudRequest('/rest/v1/jc_records?select=item_key,data&collection=eq.visits&item_key=eq.'+encodeURIComponent(key)+'&limit=1');
   const confirmed=await check.json();
   if(!Array.isArray(confirmed)||!confirmed.length)throw new Error('O visto não apareceu na nuvem após a gravação.');
+  // Segunda confirmação compartilhada: mantém um livro único de vistos que todos os aparelhos leem.
+  await saveVisitLedger([v]);
   if(!cloudShadow.visits)cloudShadow.visits={};
   cloudShadow.visits[key]=JSON.stringify(v);clearVisitPending(key);cloudLastPush=Date.now();updateCloudIndicators();return true;
  }catch(err){cloudLastError=err.message;cloudDirty=true;scheduleCloudPush();console.warn('Falha ao gravar visto imediatamente:',err);return false}
@@ -1134,14 +1179,17 @@ async function fetchStudentVisitsFromCloud(st){
  if(!st||!cloudEnabled)return [];
  const found=new Map();
  const addRows=rows=>{(Array.isArray(rows)?rows:[]).forEach(row=>{const v=row?.data;if(v&&v.id!==undefined)found.set(String(v.id),v)})};
+ // Fonte compartilhada principal: livro global de vistos, independente do cache/local de cada aparelho.
+ const ledger=await fetchVisitLedger().catch(()=>[]);
+ ledger.filter(v=>visitMatchesStudent(v,st)).forEach(v=>found.set(String(v.id),v));
  const login=String(st.login||'').trim();
  if(login){
-  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc');
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc&_ts='+Date.now());
   addRows(await r.json());
  }
  /* Alguns vistos antigos podem não ter login, mas possuem turma e chamada. Como a
     quantidade de vistos é pequena, esta leitura complementar continua leve. */
- const r2=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
+ const r2=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc&_ts='+Date.now());
  const all=await r2.json();
  addRows((Array.isArray(all)?all:[]).filter(row=>visitMatchesStudent(row?.data,st)));
  return [...found.values()];
@@ -3220,9 +3268,10 @@ window.addEventListener('storage',ev=>{if(ev.key==='jc_messages'){try{db.message
    apenas iniciando-a em segundo plano depois que o login/interface já foi pintado. */
 render();
 setInterval(()=>{if(S.user?.role==='student')pullStudentVisitsOnly()},2000);
-window.addEventListener('focus',()=>{if(S.user?.role==='student')pullStudentVisitsOnly()});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user?.role==='student')pullStudentVisitsOnly()});
-window.addEventListener('online',()=>{if(S.user?.role==='student')pullStudentVisitsOnly()});
+setInterval(()=>{if(S.user)pullVisitLedger()},2000);
+window.addEventListener('focus',()=>{if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user)pullVisitLedger()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user)pullVisitLedger()}});
+window.addEventListener('online',()=>{if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user)pullVisitLedger()});
 setTimeout(()=>{
  initCloud().finally(()=>{
    if(S.user&&!preserveActiveInteraction())render();
