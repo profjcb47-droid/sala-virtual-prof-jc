@@ -605,6 +605,10 @@ async function pushVisitImmediately(v){
  const key=String(v.id);
  try{
   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visits',item_key:key,data:v,updated_at:new Date().toISOString()}])});
+  // Confirma no servidor antes de liberar a proteção local. POST 2xx sozinho não basta.
+  const check=await cloudRequest('/rest/v1/jc_records?select=item_key,data&collection=eq.visits&item_key=eq.'+encodeURIComponent(key)+'&limit=1');
+  const confirmed=await check.json();
+  if(!Array.isArray(confirmed)||!confirmed.length)throw new Error('O visto não apareceu na nuvem após a gravação.');
   if(!cloudShadow.visits)cloudShadow.visits={};
   cloudShadow.visits[key]=JSON.stringify(v);clearVisitPending(key);cloudLastPush=Date.now();updateCloudIndicators();return true;
  }catch(err){cloudLastError=err.message;cloudDirty=true;scheduleCloudPush();console.warn('Falha ao gravar visto imediatamente:',err);return false}
@@ -1103,7 +1107,8 @@ function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).spli
 function normalizeVisitText(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª]/g,"").replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ")}
 function visitStudentKey(st){return studentIdentityKey(st)||String(st?.login||'')}
 function visitMatchesStudent(v,st){if(!v||!st)return false;const key=visitStudentKey(st);if(v.studentKey&&key&&String(v.studentKey)===String(key))return true;if(v.turma&&v.chamada&&normalizeStudentClassKey(v.turma)===normalizeStudentClassKey(st.turma)&&Number(v.chamada)===Number(st.chamada))return true;return !!st.login&&!!v.login&&String(v.login)===String(st.login)}
-function visitsForStudent(studentOrLogin){const st=typeof studentOrLogin==='object'?studentOrLogin:(db.students||[]).find(x=>x.login===studentOrLogin);return (Array.isArray(db.visits)?db.visits:[]).filter(v=>st?visitMatchesStudent(v,st):v.login===studentOrLogin).sort((a,b)=>Number(b.createdAt||b.id||0)-Number(a.createdAt||a.id||0))}
+function visitInCurrentPeriod(v){const p=currentVisitPeriod();return (!v?.bimester&&!v?.year)||(Number(v.bimester)===Number(p.bimester)&&Number(v.year||p.year)===Number(p.year))}
+function visitsForStudent(studentOrLogin){const st=typeof studentOrLogin==='object'?studentOrLogin:(db.students||[]).find(x=>x.login===studentOrLogin);return (Array.isArray(db.visits)?db.visits:[]).filter(v=>visitInCurrentPeriod(v)&&(st?visitMatchesStudent(v,st):v.login===studentOrLogin)).sort((a,b)=>Number(b.createdAt||b.id||0)-Number(a.createdAt||a.id||0))}
 function visitTotal(studentOrLogin){return visitsForStudent(studentOrLogin).length}
 function hasVisitToday(studentOrLogin){const today=visitDateKey();return visitsForStudent(studentOrLogin).some(v=>v.date===today)}
 function findStudentFromQr(raw){
@@ -1132,7 +1137,8 @@ async function registerVisitRaw(raw,quiet=false){
  const today=visitDateKey();if(visitsForStudent(st).some(v=>v.date===today)){if(!quiet)setVisitStudentResult("warn",st,"Este aluno já recebeu o visto de hoje.",`Total: ${visitTotal(st)} vistos`);return {ok:false,reason:"duplicate",student:st}}
  if(!Array.isArray(db.visits))db.visits=[];
  const now=Date.now(),studentKey=visitStudentKey(st),id=`VISTO|${studentKey}|${today}`;
- const visit={id,studentKey,login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,createdAt:now,updatedAt:now,raw:raw.slice(0,500)};
+ const vp=currentVisitPeriod();
+ const visit={id,studentKey,login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,year:vp.year,bimester:vp.bimester,createdAt:now,updatedAt:now,raw:raw.slice(0,500)};
  db.visits.push(visit);markVisitPending(visit);
  // Salva localmente primeiro, mas só confirma visualmente depois de tentar gravar a MESMA chave na nuvem.
  Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));
@@ -1170,9 +1176,9 @@ function deleteVisit(id){
 }
 function refreshVisitCounters(){
  if(S.page!=="visitsTeacher")return;
- const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today);
+ const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v));
  const el=byId("visitTodayCount");if(el)el.textContent=todayRows.length;
- const total=byId("visitAllCount");if(total)total.textContent=(db.visits||[]).length;
+ const total=byId("visitAllCount");if(total)total.textContent=(db.visits||[]).filter(visitInCurrentPeriod).length;
  const recent=byId("visitRecentBody");if(recent)recent.innerHTML=visitRecentRows(todayRows);
  document.querySelectorAll("[data-visit-class]").forEach(el=>{el.textContent=todayRows.filter(v=>v.turma===el.dataset.visitClass).length})
 }
@@ -1244,7 +1250,11 @@ function stopVisitCamera(){
 
 function currentVisitPeriod(){
  if(!db.visitPeriod||typeof db.visitPeriod!=="object"||Array.isArray(db.visitPeriod))db.visitPeriod={year:new Date().getFullYear(),bimester:1};
- let year=parseInt(db.visitPeriod.year,10);let bim=parseInt(db.visitPeriod.bimester,10);
+ let year=parseInt(db.visitPeriod.year,10);
+ // A escolha manual do professor fica fixa neste aparelho até ele escolher outro bimestre.
+ // Isso impede uma leitura periódica da nuvem de devolver a tela para outro período.
+ const sticky=parseInt(localStorage.getItem("jc_visit_bimester_selected")||"",10);
+ let bim=[1,2,3,4].includes(sticky)?sticky:parseInt(db.visitPeriod.bimester,10);
  if(!Number.isFinite(year))year=new Date().getFullYear();if(!Number.isFinite(bim)||bim<1||bim>4)bim=1;
  db.visitPeriod={year,bimester:bim};return db.visitPeriod
 }
@@ -1299,8 +1309,9 @@ function setVisitBimester(value){
  const n=parseInt(value,10);if(![1,2,3,4].includes(n))return;
  const p=currentVisitPeriod();
  db.visitPeriod={year:p.year,bimester:n};
+ localStorage.setItem("jc_visit_bimester_selected",String(n));
  localStorage.setItem("jc_visitPeriod",JSON.stringify(db.visitPeriod));
- scheduleCloudPush();
+ cloudDirty=true;scheduleCloudPush();
  const tag=byId("visitPeriodTag");if(tag)tag.textContent=`📘 ${n}º Bimestre`;
  const sel=byId("visitBimesterSelect");if(sel&&String(sel.value)!==String(n))sel.value=String(n);
 }
@@ -1392,7 +1403,7 @@ function toggleVisitRoster(){
 
 function visitsTeacher(){
  stopVisitCamera();
- const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today),classes=[...(db.classes||CLASSES||[])];
+ const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v)),classes=[...(db.classes||CLASSES||[])];
  const classCards=classes.map(c=>`<div class="visitClassCard"><span>${e(c)}</span><b data-visit-class="${e(c)}">${todayRows.filter(v=>v.turma===c).length}</b><span>visto(s) hoje</span></div>`).join("");
  page.innerHTML=`<a class="back" href="#" onclick="go('teacher');return false">← Área do professor</a>
  <h1 class="center">⭐ Leitor de Vistos</h1><p class="sub">Leitura pelo celular com QR individual do aluno. O novo padrão é ALUNO|9B|30; os QR Codes antigos continuam aceitos. Cada aluno recebe no máximo 1 visto por dia.</p>
@@ -1410,7 +1421,7 @@ function visitsTeacher(){
    <button class="primary" style="width:100%;margin-top:8px" onclick="processVisitBatch()">Registrar lista</button>
   </section>
  </div>
- <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
+ <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).filter(visitInCurrentPeriod).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
 
  <section class="panel visitRecentPanel" style="margin-top:14px">
   <h3 class="visitRecentDesktopTitle">Últimos vistos de hoje</h3>
