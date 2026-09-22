@@ -802,6 +802,9 @@ async function cloudPushDiff(force=false){
          incompleta durante sincronização/importação. */
       studentDeleteKeys.forEach(key=>deletes.push([k,key]));
       // Chaves antigas/duplicadas não são apagadas automaticamente. A interface as consolida pela identidade Turma + Nº; exclusão física só ocorre por ação explícita do professor.
+    }else if(k==="visits"){
+      /* Vistos são históricos aditivos. Nunca apagar da nuvem só porque um aparelho
+         ainda não possui uma leitura feita em outro dispositivo. */
     }else{
       Object.keys(shadow).forEach(key=>{if(!current.has(key))deletes.push([k,key])});
     }
@@ -1094,7 +1097,7 @@ function topbar(){const isTeacher=S.user?.role==='teacher',isCoord=S.user?.role=
 function openDrawer(){const teacher=S.user.role==="teacher",coord=S.user.role==="coordinator";const links=teacher?[["teacher","Início"],["teacherNotifications","Notificações"],["visitsTeacher","Leitor de Vistos"],["classes","Gerenciar turmas"],["highlightsTeacher","Avisos em Destaque"],["schedule","Horário escolar"],["videosTeacher","Videoaulas"],["submitted","Ver atividades"],["virtualLibraryTeacher","Biblioteca Virtual"],["activities","Criar atividades e questionários"],["messages","Mensagens"],["content","Adicionar conteúdo"],["announcementsTeacher","Publicar mensagem"],["access","Quando o aluno entrou no app"]]:coord?[["coordinator","Início"],["coordNotifications","Notificações"],["coordClasses","Turmas e Alunos"],["coordSchedule","Horário escolar"],["coordActivities","Atividades enviadas"],["coordFiles","Arquivos e listas enviados"],["coordLibrary","Biblioteca Virtual"],["coordVideos","Videoaulas"],["coordAnnouncements","Mensagens publicadas"],["coordReports","Relatórios"]]:[["student","Início"],["studentVisits","Meus Vistos"],["studentNotifications","Notificações"],["studentLibrary","Biblioteca Virtual"],["videosStudent","Videoaulas"],["subjects","Minha turma"],["studentActs","Atividades e questionários"],["send","Enviar atividades/trabalhos"],["schedule","Horário escolar"],["studentTalk","Falar com o professor"]];drawer.innerHTML=`<div class="drawerbox"><img src="${LOGO}"><h3>Sala Virtual Prof. JC</h3>${coord?`<div class="notice" style="margin:8px 0 14px"><b>Coordenação</b><br><span class="small">Somente visualização</span></div>`:''}${links.map(x=>`<a href="javascript:void(0)" onclick="go('${x[0]}');closeDrawer();return false">${x[1]}</a>`).join("")}<a href="javascript:void(0)" onclick="logout();return false">Sair</a></div>`;drawer.classList.add("open")}
 function closeDrawer(){drawer.classList.remove("open")}drawer.addEventListener("click",ev=>{if(ev.target===drawer)closeDrawer()});
 function render(){cleanupOldMessages();if(!S.user)return renderLogin();root.innerHTML=topbar()+`<main id="page" class="page"></main>`;const routes={teacher,teacherNotifications,coordinator,coordNotifications,coordClasses,coordSchedule,coordActivities,coordFiles,coordLibrary,coordVideos,coordAnnouncements,coordReports,coordReportView,coordOccurrenceView,visitsTeacher,studentVisits,classes:classesPage,classStudents:classStudentsPage,students:studentsPage,schedule,activities,createActivity,activityList,activityResults,gradesOverview,studentPerformanceDetail,content,announcementsTeacher,highlightsTeacher,studentAnnouncement,virtualLibraryTeacher,studentLibrary,videosTeacher,videosStudent,reports,occurrences,reportEditor,reportPreview,development,messages,teacherTalk,submitted,access,student,studentNotifications,subjects,subjectPage,studentActs,studentActivity,studentGrades,send,studentTalk};const fallback=S.user?.role==="coordinator"?coordinator:S.user?.role==="student"?student:teacher;const f=routes[S.page]||fallback;if(S.user?.role==="coordinator"&&!String(S.page).startsWith("coord")&&S.page!=="coordinator")return go("coordinator");f()}
-function preserveActiveInteraction(){return S.page==='studentActivity'||S.page==='createActivity'||S.page==='visitsTeacher'}
+function preserveActiveInteraction(){return S.page==='studentActivity'||S.page==='createActivity'||S.page==='visitsTeacher'||S.page==='classStudents'}
 function keepCleanUrl(){
   try{
     if(window.location.hash){
@@ -1261,7 +1264,7 @@ function currentVisitPeriod(){
  let year=parseInt(db.visitPeriod.year,10);
  // A escolha manual do professor fica fixa neste aparelho até ele escolher outro bimestre.
  // Isso impede uma leitura periódica da nuvem de devolver a tela para outro período.
- const sticky=parseInt(localStorage.getItem("jc_visit_bimester_selected")||"",10);
+ const sticky=S.user?.role==="teacher"?parseInt(localStorage.getItem("jc_visit_bimester_selected")||"",10):NaN;
  let bim=[1,2,3,4].includes(sticky)?sticky:parseInt(db.visitPeriod.bimester,10);
  if(!Number.isFinite(year))year=new Date().getFullYear();if(!Number.isFinite(bim)||bim<1||bim>4)bim=1;
  db.visitPeriod={year,bimester:bim};return db.visitPeriod
