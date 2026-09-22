@@ -1126,15 +1126,35 @@ function visitTotal(studentOrLogin){return visitsForStudent(studentOrLogin).leng
    confirmado pelo professor aparece no aparelho do aluno sem reconstruir a tela
    nem recarregar a foto do perfil. */
 let studentVisitPullRunning=false;
+/* Busca os vistos do aluno diretamente na coleção remota. A consulta por login é
+   propositalmente independente do restante da sincronização: celular e computador
+   passam a ler a mesma fonte oficial. Também fazemos uma segunda consulta por
+   turma+número para manter compatibilidade com registros antigos/QRs antigos. */
+async function fetchStudentVisitsFromCloud(st){
+ if(!st||!cloudEnabled)return [];
+ const found=new Map();
+ const addRows=rows=>{(Array.isArray(rows)?rows:[]).forEach(row=>{const v=row?.data;if(v&&v.id!==undefined)found.set(String(v.id),v)})};
+ const login=String(st.login||'').trim();
+ if(login){
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc');
+  addRows(await r.json());
+ }
+ /* Alguns vistos antigos podem não ter login, mas possuem turma e chamada. Como a
+    quantidade de vistos é pequena, esta leitura complementar continua leve. */
+ const r2=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
+ const all=await r2.json();
+ addRows((Array.isArray(all)?all:[]).filter(row=>visitMatchesStudent(row?.data,st)));
+ return [...found.values()];
+}
 async function pullStudentVisitsOnly(){
  if(!cloudEnabled||studentVisitPullRunning||S.user?.role!=="student")return;
  studentVisitPullRunning=true;
  try{
-  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
-  const rows=await r.json();
-  const byId=new Map();
+  const remote=await fetchStudentVisitsFromCloud(S.user),byId=new Map();
+  /* Mantém os registros locais já conhecidos e acrescenta/atualiza os confirmados
+     pela nuvem. Nunca zera o aluno por causa de uma resposta temporariamente vazia. */
   (Array.isArray(db.visits)?db.visits:[]).forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
-  (Array.isArray(rows)?rows:[]).forEach(row=>{const v=row?.data;if(v&&v.id!==undefined)byId.set(String(v.id),v)});
+  remote.forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
   db.visits=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
   localStorage.setItem('jc_visits',JSON.stringify(db.visits));
   const count=visitTotal(S.user);
@@ -3200,6 +3220,9 @@ window.addEventListener('storage',ev=>{if(ev.key==='jc_messages'){try{db.message
    apenas iniciando-a em segundo plano depois que o login/interface já foi pintado. */
 render();
 setInterval(()=>{if(S.user?.role==='student')pullStudentVisitsOnly()},2000);
+window.addEventListener('focus',()=>{if(S.user?.role==='student')pullStudentVisitsOnly()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user?.role==='student')pullStudentVisitsOnly()});
+window.addEventListener('online',()=>{if(S.user?.role==='student')pullStudentVisitsOnly()});
 setTimeout(()=>{
  initCloud().finally(()=>{
    if(S.user&&!preserveActiveInteraction())render();
