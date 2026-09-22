@@ -561,7 +561,7 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
-const APP_BUILD="20260922-1925-visits-sync";
+const APP_BUILD="20260922-2030-supabase-rest-auth-fix";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","schedule","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
@@ -689,6 +689,14 @@ async function pushVisitImmediately(v){
 }
 
 function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
+/* As chaves Supabase modernas `sb_publishable_...` não são JWT e não podem ser
+   enviadas como Bearer. Para o PostgREST, a publishable key vai somente em apikey.
+   Mantemos supabaseHeaders acima para Storage, sem alterar fotos/arquivos. */
+function supabaseRestHeaders(extra={}){
+ const h={"apikey":SUPABASE_KEY,...extra};
+ if(String(SUPABASE_KEY||'').startsWith('eyJ'))h.Authorization='Bearer '+SUPABASE_KEY;
+ return h;
+}
 function stableKeyForItem(collection,item,index){
  if(collection==="students")return studentIdentityKey(item)||String(item.login||index);
  if(collection==="notes"){if(!item.id)item.id=Date.now()+index+Math.floor(Math.random()*1000);return String(item.id)}
@@ -712,7 +720,7 @@ function rebuildCollection(collection,rows){
 }
 async function cloudRequest(path,options={}){
  const method=String(options.method||'GET').toUpperCase();
- const fetchOptions={...options,cache:'no-store',headers:{...supabaseHeaders({'Cache-Control':'no-cache'}),...(options.headers||{})}};
+ const fetchOptions={...options,cache:'no-store',headers:{...supabaseRestHeaders({'Cache-Control':'no-cache'}),...(options.headers||{})}};
  if(method==='GET')fetchOptions.cache='no-store';
  const r=await fetch(SUPABASE_URL+path,fetchOptions);
  if(!r.ok){const text=await r.text().catch(()=>"");throw new Error(`Supabase ${r.status}: ${text||r.statusText}`)}
