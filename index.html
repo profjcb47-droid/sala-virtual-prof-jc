@@ -561,6 +561,7 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
+const APP_BUILD="20260922-1925-visits-sync";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","schedule","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
@@ -1184,7 +1185,7 @@ window.addEventListener("hashchange",keepCleanUrl);
 function renderLogin(){
 forceCloseNavigation();
 root.innerHTML=`<section class="loginPage"><div class="loginBox"><img class="loginLogo" src="${LOGO_LOGIN}" alt="CEPI Jardim Tiradentes"><h1 class="loginTitle">Sala Virtual Prof. JC</h1><p class="muted">Bem-vindo à nossa sala virtual, Prof. JC!</p><div class="role"><button id="rStu" class="active">Aluno</button><button id="rTea">Professor</button></div><label>Usuário</label><input id="loginU" autocomplete="username"><label>Senha</label><input id="loginP" type="password" autocomplete="current-password"><button class="primary" style="width:100%;margin-top:14px" id="enter">Entrar</button><div class="links"><a href="#" id="help">Fale com o professor</a><a href="#" id="install">Instalar app no celular</a></div></div></section>`;rStu.onclick=()=>{S.role="student";rStu.classList.add("active");rTea.classList.remove("active")};rTea.onclick=()=>{S.role="teacher";rTea.classList.add("active");rStu.classList.remove("active")};enter.onclick=login;loginP.addEventListener("keydown",x=>{if(x.key==="Enter")login()});help.onclick=x=>{x.preventDefault();toast("Procure o Prof. JC para recuperar seu acesso.")};install.onclick=x=>{x.preventDefault();toast("No celular, use 'Adicionar à tela inicial' no navegador.")}}
-function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u===T.login&&p===T.senha){S.user=T;S.page="teacher"}else if(u===COORD.login&&p===COORD.senha){S.user=COORD;S.page="coordinator"}else return toast("Usuário ou senha inválidos.")}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}try{sessionStorage.removeItem("jc_highlight_dismissed")}catch{}saveSessionState();render();if(S.user?.role==='student'||S.user?.role==='coordinator')setTimeout(showStudentHighlight,450)}
+function login(){const u=loginU.value.trim().toLowerCase(),p=loginP.value.trim();if(S.role==="teacher"){if(u===T.login&&p===T.senha){S.user=T;S.page="teacher"}else if(u===COORD.login&&p===COORD.senha){S.user=COORD;S.page="coordinator"}else return toast("Usuário ou senha inválidos.")}else{const st=db.students.find(x=>x.login.toLowerCase()===u&&String(x.senha)===p);if(!st)return toast("Usuário ou senha inválidos.");S.user={...st,role:"student"};db.accesses[st.login]=new Date().toLocaleString("pt-BR");persist();S.page="student"}try{sessionStorage.removeItem("jc_highlight_dismissed")}catch{}saveSessionState();render();setTimeout(()=>{syncVisitsDirect();if(S.user?.role==='student')pullStudentVisitsOnly()},80);if(S.user?.role==='student'||S.user?.role==='coordinator')setTimeout(showStudentHighlight,450)}
 
 function visitDateKey(ts=Date.now()){const d=new Date(ts),y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,"0"),day=String(d.getDate()).padStart(2,"0");return `${y}-${m}-${day}`}
 function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}
@@ -3295,12 +3296,25 @@ window.addEventListener('storage',ev=>{if(ev.key==='jc_messages'){try{db.message
    uma tela branca em conexões móveis. Mantemos toda a sincronização existente,
    apenas iniciando-a em segundo plano depois que o login/interface já foi pintado. */
 render();
-setInterval(()=>{if(S.user?.role==='student')pullStudentVisitsOnly()},2000);
-setInterval(()=>{if(S.user)pullVisitLedger()},2000);
-setInterval(()=>{if(S.user)syncVisitsDirect()},2000);
-window.addEventListener('focus',()=>{if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user){pullVisitLedger();syncVisitsDirect()}});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user)pullVisitLedger()}});
-window.addEventListener('online',()=>{if(S.user?.role==='student')pullStudentVisitsOnly();if(S.user){pullVisitLedger();syncVisitsDirect()}});
+setInterval(()=>{if(S.user?.role==='student')pullStudentVisitsOnly()},1000);
+setInterval(()=>{if(S.user)syncVisitsDirect()},1000);
+/* Evita que um aparelho continue executando uma versão antiga após uma nova
+   publicação na Vercel. Abas já abertas não recebem o novo JavaScript sozinhas. */
+let buildCheckBusy=false;
+async function checkPublishedBuild(){
+ if(buildCheckBusy)return;buildCheckBusy=true;
+ try{
+  const r=await fetch(location.pathname+'?jc_build_check='+Date.now(),{cache:'no-store'});
+  if(!r.ok)return;
+  const txt=await r.text(),m=txt.match(/const APP_BUILD="([^"]+)"/);
+  if(m&&m[1]&&m[1]!==APP_BUILD){location.reload();}
+ }catch{}finally{buildCheckBusy=false}
+}
+setInterval(checkPublishedBuild,30000);
+window.addEventListener('pageshow',()=>{checkPublishedBuild();if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
+window.addEventListener('focus',()=>{if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
+window.addEventListener('online',()=>{if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
 setTimeout(()=>{
  initCloud().finally(()=>{
    if(S.user&&!preserveActiveInteraction())render();
