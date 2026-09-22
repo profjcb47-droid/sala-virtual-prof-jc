@@ -1075,7 +1075,7 @@ function visitDateKey(ts=Date.now()){const d=new Date(ts),y=d.getFullYear(),m=St
 function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}
 function normalizeVisitText(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª]/g,"").replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ")}
 function visitStudentKey(st){return studentIdentityKey(st)||String(st?.login||'')}
-function visitMatchesStudent(v,st){if(!v||!st)return false;const key=visitStudentKey(st);if(v.studentKey&&key)return String(v.studentKey)===String(key);if(v.turma&&v.chamada)return normalizeStudentClassKey(v.turma)===normalizeStudentClassKey(st.turma)&&Number(v.chamada)===Number(st.chamada);return !!st.login&&v.login===st.login}
+function visitMatchesStudent(v,st){if(!v||!st)return false;const key=visitStudentKey(st);if(v.studentKey&&key&&String(v.studentKey)===String(key))return true;if(v.turma&&v.chamada&&normalizeStudentClassKey(v.turma)===normalizeStudentClassKey(st.turma)&&Number(v.chamada)===Number(st.chamada))return true;return !!st.login&&!!v.login&&String(v.login)===String(st.login)}
 function visitsForStudent(studentOrLogin){const st=typeof studentOrLogin==='object'?studentOrLogin:(db.students||[]).find(x=>x.login===studentOrLogin);return (Array.isArray(db.visits)?db.visits:[]).filter(v=>st?visitMatchesStudent(v,st):v.login===studentOrLogin).sort((a,b)=>Number(b.createdAt||b.id||0)-Number(a.createdAt||a.id||0))}
 function visitTotal(studentOrLogin){return visitsForStudent(studentOrLogin).length}
 function hasVisitToday(studentOrLogin){const today=visitDateKey();return visitsForStudent(studentOrLogin).some(v=>v.date===today)}
@@ -1103,7 +1103,7 @@ function registerVisitRaw(raw,quiet=false){
  raw=String(raw||"").trim();if(!raw){if(!quiet)setVisitResult("warn","Nenhum QR informado.");return {ok:false,reason:"empty"}}
  const st=findStudentFromQr(raw);if(!st){if(!quiet)setVisitResult("err","Aluno não encontrado","Use o novo QR do aluno (ALUNO|9B|30) ou o formato antigo 9ºB - 30. Nome do aluno.");return {ok:false,reason:"notfound"}}
  const today=visitDateKey();if(visitsForStudent(st).some(v=>v.date===today)){if(!quiet)setVisitStudentResult("warn",st,"Este aluno já recebeu o visto de hoje.",`Total: ${visitTotal(st)} vistos`);return {ok:false,reason:"duplicate",student:st}}
- if(!Array.isArray(db.visits))db.visits=[];const now=Date.now();db.visits.push({id:now+Math.floor(Math.random()*1000),studentKey:visitStudentKey(st),login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,createdAt:now,updatedAt:now,raw:raw.slice(0,500)});persist();cloudPushDiff().then(()=>cloudPull(false)).catch(()=>{});if(!quiet)setVisitStudentResult("ok",st,"✅ Visto registrado!",`Agora tem ${visitTotal(st)} visto(s)`);return {ok:true,student:st}
+ if(!Array.isArray(db.visits))db.visits=[];const now=Date.now();db.visits.push({id:now+Math.floor(Math.random()*1000),studentKey:visitStudentKey(st),login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,createdAt:now,updatedAt:now,raw:raw.slice(0,500)});persist();/* persist() agenda o envio. Nao fazemos cloudPull aqui: uma leitura remota antes da confirmacao poderia apagar o visto recem-registrado. */if(!quiet)setVisitStudentResult("ok",st,"✅ Visto registrado!",`Agora tem ${visitTotal(st)} visto(s)`);return {ok:true,student:st}
 }
 function registerVisitInput(){
  const input=byId("visitQuickInput");if(!input)return;
@@ -1281,7 +1281,7 @@ function visitRosterRows(className){
    if(Number.isFinite(na)&&Number.isFinite(nb)&&na!==nb)return na-nb;
    return String(a.nome||"").localeCompare(String(b.nome||""),"pt-BR")
  });
- return students.map(st=>({student:st,total:visitTotal(st.login)}))
+ return students.map(st=>({student:st,total:visitTotal(st)}))
 }
 function visitRosterTableHtml(className){
  const rows=visitRosterRows(className);
