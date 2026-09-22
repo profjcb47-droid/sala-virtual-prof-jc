@@ -879,17 +879,21 @@ function captureTeacherPhoto(){
  canvas.toBlob(blob=>{if(!blob)return toast('Não foi possível capturar a foto.');const file=new File([blob],`foto_aluno_${Date.now()}.jpg`,{type:'image/jpeg'});chooseTeacherStudentPhoto(file);closeTeacherCamera();const info=byId('classPhotoInfo');if(info)info.textContent='Foto tirada agora. Clique em Salvar alterações para gravar.'},'image/jpeg',.92);
 }
 function compressProfileImage(file){return new Promise((resolve,reject)=>{const img=new Image(),url=URL.createObjectURL(file);img.onload=()=>{try{const size=180,c=document.createElement('canvas');c.width=size;c.height=size;const ctx=c.getContext('2d');const scale=Math.max(size/img.width,size/img.height),w=img.width*scale,h=img.height*scale,x=(size-w)/2,y=(size-h)/2;ctx.drawImage(img,x,y,w,h);c.toBlob(b=>{URL.revokeObjectURL(url);b?resolve(b):reject(new Error('Falha ao processar foto'))},'image/jpeg',.82)}catch(e){URL.revokeObjectURL(url);reject(e)}};img.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Imagem inválida'))};img.src=url})}
+function studentPhotoStableKey(st){const id=studentIdentityKey(st);return id?`student-photos/${id.replace('|','-')}.jpg`:(st?.photoKey||profilePhotoKey(st?.login||''))}
 async function assignStudentPhoto(st,file){
  if(!st||!file)return false;
  const data=await compressProfileImage(file);
- const oldKey=st.photoKey||'';
- const newKey=`profile_${st.login}_${Date.now()}_${Math.random().toString(36).slice(2,7)}.jpg`;
+ // A foto pertence ao aluno pela identidade Turma + Nº, nunca pelo login.
+ // A chave estável impede que computador/celular criem referências diferentes.
+ const newKey=studentPhotoStableKey(st);
  await saveFileBlob(newKey,data,true);
  st.hasPhoto=true;st.photoKey=newKey;st.photoUpdatedAt=Date.now();
- if(oldKey&&oldKey!==newKey)deleteCloudFile(oldKey);
+ // Não apagamos fotos antigas automaticamente: preservação é prioridade.
+ persist();
+ await syncNow(false);
  return true;
 }
-async function loadProfilePhoto(login,targetId){try{const st=db.students.find(x=>x.login===login);const key=st?.photoKey||profilePhotoKey(login);const blob=await getFileBlob(key,!!st?.photoKey);const el=byId(targetId);if(!blob||!el)return;if(el.dataset.photoUrl){try{URL.revokeObjectURL(el.dataset.photoUrl)}catch{}}const url=URL.createObjectURL(blob);el.innerHTML=`<img src="${url}" alt="Foto do aluno">`;el.classList.add('profileReady');el.dataset.photoUrl=url}catch(err){console.warn(err)}}
+async function loadProfilePhoto(login,targetId){try{const st=db.students.find(x=>x.login===login);if(!st)return;const keys=[st.photoKey,studentPhotoStableKey(st),profilePhotoKey(login)].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);let blob=null,used='';for(const key of keys){blob=await getFileBlob(key,key===st.photoKey||key===studentPhotoStableKey(st));if(blob){used=key;break}}const el=byId(targetId);if(!blob||!el)return;if(used&&st.photoKey!==used){st.photoKey=used;st.hasPhoto=true;st.photoUpdatedAt=Number(st.photoUpdatedAt||Date.now());persist();scheduleCloudPush()}if(el.dataset.photoUrl){try{URL.revokeObjectURL(el.dataset.photoUrl)}catch{}}const url=URL.createObjectURL(blob);el.innerHTML=`<img src="${url}" alt="Foto do aluno">`;el.classList.add('profileReady');el.dataset.photoUrl=url}catch(err){console.warn(err)}}
 let studentPhotoCloudMigrationRunning=false;
 async function syncLegacyStudentPhotosToCloud(){
  if(studentPhotoCloudMigrationRunning||!navigator.onLine||S.user?.role!=="teacher")return;
