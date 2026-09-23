@@ -608,6 +608,26 @@ let visitDeletedKeys=new Set(JSON.parse(localStorage.getItem("jc_visit_deleted_k
 function saveVisitDeletedKeys(){localStorage.setItem("jc_visit_deleted_keys",JSON.stringify([...visitDeletedKeys]))}
 function markVisitDeleted(id){if(id!==undefined&&id!==null){visitDeletedKeys.add(String(id));saveVisitDeletedKeys()}}
 function isVisitDeleted(vOrId){const id=typeof vOrId==='object'?vOrId?.id:vOrId;return id!==undefined&&visitDeletedKeys.has(String(id))}
+const VISIT_DELETE_COLLECTION='visitDeletes';
+async function fetchVisitDeletes(){
+ if(!cloudEnabled)return visitDeletedKeys;
+ try{
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.'+VISIT_DELETE_COLLECTION+'&select=item_key,data,updated_at&order=updated_at.desc');
+  const rows=await r.json();
+  for(const row of (Array.isArray(rows)?rows:[]))markVisitDeleted(row?.data?.visitId??row?.item_key);
+  const clean=(db.visits||[]).filter(v=>v&&v.id!==undefined&&!isVisitDeleted(v));
+  if(JSON.stringify(clean)!==JSON.stringify(db.visits||[])){db.visits=clean;localStorage.setItem('jc_visits',JSON.stringify(db.visits));}
+ }catch(err){console.warn('Falha ao ler exclusões compartilhadas de vistos:',err)}
+ return visitDeletedKeys;
+}
+async function publishVisitDelete(v){
+ const key=String(v.id),now=Date.now();
+ await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_DELETE_COLLECTION,item_key:key,data:{visitId:key,deletedAt:now,nome:v.nome||'',turma:v.turma||'',chamada:v.chamada??null},updated_at:new Date(now).toISOString()}])});
+ const check=await cloudRequest('/rest/v1/jc_records?collection=eq.'+VISIT_DELETE_COLLECTION+'&item_key=eq.'+encodeURIComponent(key)+'&select=item_key&limit=1');
+ const rows=await check.json();
+ if(!Array.isArray(rows)||!rows.length)throw new Error('A exclusão não foi confirmada na nuvem.');
+ markVisitDeleted(key);
+}
 const VISIT_LEDGER_COLLECTION='visitLedger',VISIT_LEDGER_KEY='global';
 const VISIT_CONTROL_COLLECTION='visitControl',VISIT_CONTROL_KEY='reset';
 let visitResetCutoff=Number(localStorage.getItem('jc_visit_reset_cutoff')||0)||0;
@@ -634,45 +654,44 @@ function mergeVisitLists(...lists){
  }
  return [...m.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
 }
-async function fetchVisitLedger(){
- const r=await cloudRequest('/rest/v1/jc_records?collection=eq.'+VISIT_LEDGER_COLLECTION+'&item_key=eq.'+VISIT_LEDGER_KEY+'&select=data,updated_at&limit=1');
- const rows=await r.json();
- return Array.isArray(rows)&&rows[0]?.data?.visits?rows[0].data.visits:[];
-}
-async function saveVisitLedger(extraVisits=[]){
- const remote=await fetchVisitLedger().catch(()=>[]);
- const visits=mergeVisitLists(remote,db.visits||[],extraVisits);
- await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_LEDGER_COLLECTION,item_key:VISIT_LEDGER_KEY,data:{visits,updatedAt:Date.now()},updated_at:new Date().toISOString()}])});
- db.visits=visits;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
- return visits;
-}
+/* Compatibilidade: o antigo visitLedger deixou de ser fonte de sincronização.
+   A autoridade agora é visits + visitDeletes + visitControl. */
+async function fetchVisitLedger(){return []}
+async function saveVisitLedger(extraVisits=[]){return mergeVisitLists(db.visits||[],extraVisits)}
 let directVisitSyncRunning=false;
 let visitPeriodResetRunning=false;
 async function syncVisitsDirect(){
  if(!cloudEnabled||directVisitSyncRunning||visitPeriodResetRunning||!S.user)return;
  directVisitSyncRunning=true;
  try{
-  // Antes de publicar, lê o marco de fechamento compartilhado. Assim um aparelho
-  // que ficou offline não consegue reenviar vistos de um período já encerrado.
+  // 1) Lê primeiro a nuvem. Isso é essencial para receber exclusões antes de
+  // publicar o cache local; caso contrário outro aparelho poderia sobrescrever
+  // uma lápide com a cópia antiga do visto.
+  await fetchVisitDeletes();
   await fetchVisitResetCutoff();
-  const local=Array.isArray(db.visits)?db.visits.filter(v=>v&&v.id!==undefined&&visitAfterReset(v)):[];
-  if(local.length!==(db.visits||[]).length){db.visits=local;localStorage.setItem('jc_visits',JSON.stringify(db.visits));}
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
+  const rows=await r.json();
+  const cloudRows=Array.isArray(rows)?rows:[];
+  cloudRows.forEach(x=>{const v=x?.data;if(v?.deleted===true)markVisitDeleted(v.id??x.item_key)});
+
+  // 2) Elimina imediatamente do cache deste aparelho tudo que já possui lápide
+  // compartilhada ou pertence a período encerrado.
+  let local=Array.isArray(db.visits)?db.visits.filter(v=>v&&v.id!==undefined&&visitAfterReset(v)&&!isVisitDeleted(v)):[];
+  if(JSON.stringify(local)!==JSON.stringify(db.visits||[])){
+   db.visits=local;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+  }
+
+  // 3) Só depois publica os vistos válidos. Nunca publica um ID marcado como excluído.
   if(local.length){
    const now=new Date().toISOString();
    const payload=local.map(v=>({collection:'visits',item_key:String(v.id),data:v,updated_at:now}));
    await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(payload)});
   }
-  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
-  const rows=await r.json();
-  const cloudRows=Array.isArray(rows)?rows:[];
-  cloudRows.forEach(x=>{const v=x?.data;if(v?.deleted===true)markVisitDeleted(v.id??x.item_key)});
+
   const remote=cloudRows.map(x=>x?.data).filter(v=>v&&v.id!==undefined&&v.deleted!==true&&!isVisitDeleted(v)&&visitAfterReset(v));
-  const cleanLocal=local.filter(v=>!isVisitDeleted(v));
-  const merged=mergeVisitLists(cleanLocal,remote);
+  const merged=mergeVisitLists(local,remote);
   const changed=JSON.stringify(merged)!==JSON.stringify(db.visits||[]);
   db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
-  // Mantém também o livro compartilhado como redundância, sem depender dele para sincronizar.
-  saveVisitLedger(merged).catch(()=>{});
   if(changed){
    if(S.user?.role==='student'){const vc=document.getElementById('student_visit_count');if(vc)vc.textContent=String(visitTotal(S.user));if(S.page==='studentVisits')studentVisits();}
    else if(S.user?.role==='teacher'&&S.page==='visitsTeacher'){refreshVisitCounters();updateVisitRoster();const body=document.getElementById('visitRecentBody');if(body){const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v));body.innerHTML=visitRecentRows(todayRows);}}
@@ -684,34 +703,20 @@ let visitLedgerPullRunning=false;
 async function pullVisitLedger(){
  if(!cloudEnabled||visitLedgerPullRunning||visitPeriodResetRunning||!S.user)return;
  visitLedgerPullRunning=true;
- try{
-  const remote=(await fetchVisitLedger()).filter(v=>visitAfterReset(v)&&!isVisitDeleted(v));
-  if(remote.length){
-   const merged=mergeVisitLists((db.visits||[]).filter(visitAfterReset),remote);
-   if(JSON.stringify(merged)!==JSON.stringify(db.visits||[])){
-    db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
-    if(S.user?.role==='student'){
-     const vc=document.getElementById('student_visit_count');if(vc)vc.textContent=String(visitTotal(S.user));
-     if(S.page==='studentVisits')studentVisits();
-    }else if(S.user?.role==='teacher'&&S.page==='visitsTeacher'){
-     refreshVisitCounters();updateVisitRoster();
-    }
-   }
-  }
- }catch(err){console.warn('Falha ao atualizar livro compartilhado de vistos:',err)}
+ try{await fetchVisitDeletes();await fetchVisitResetCutoff()}
  finally{visitLedgerPullRunning=false}
 }
 async function pushVisitImmediately(v){
  if(!cloudEnabled||!v)return false;
  const key=String(v.id);
+ await fetchVisitDeletes();
+ if(isVisitDeleted(key)){clearVisitPending(key);return false;}
  try{
   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visits',item_key:key,data:v,updated_at:new Date().toISOString()}])});
   // Confirma no servidor antes de liberar a proteção local. POST 2xx sozinho não basta.
   const check=await cloudRequest('/rest/v1/jc_records?select=item_key,data&collection=eq.visits&item_key=eq.'+encodeURIComponent(key)+'&limit=1');
   const confirmed=await check.json();
   if(!Array.isArray(confirmed)||!confirmed.length)throw new Error('O visto não apareceu na nuvem após a gravação.');
-  // Segunda confirmação compartilhada: mantém um livro único de vistos que todos os aparelhos leem.
-  await saveVisitLedger([v]);
   if(!cloudShadow.visits)cloudShadow.visits={};
   cloudShadow.visits[key]=JSON.stringify(v);clearVisitPending(key);cloudLastPush=Date.now();visitDiag.lastWriteOk=true;visitDiag.error='';updateCloudIndicators();updateVisitDiagnosticBox();return true;
  }catch(err){cloudLastError=err.message;visitDiag.lastWriteOk=false;visitDiag.error=String(err?.message||err);visitDiag.lastCheck=Date.now();cloudDirty=true;scheduleCloudPush();updateVisitDiagnosticBox();console.warn('Falha ao gravar visto imediatamente:',err);return false}
@@ -810,6 +815,8 @@ async function cloudPull(initial=false){
  try{
   const r=await cloudRequest('/rest/v1/jc_records?select=collection,item_key,data,updated_at&order=collection.asc,item_key.asc');
   const rows=await r.json();
+  await fetchVisitDeletes();
+  await fetchVisitResetCutoff();
   /* Se o usuário alterou algum dado enquanto esta leitura da nuvem estava
      em andamento, não podemos aplicar uma resposta antiga por cima da
      alteração local. Primeiro enviamos o que acabou de ser salvo e somente
@@ -847,8 +854,8 @@ async function cloudPull(initial=false){
     if(k==="visits"){
       if(visitPeriodResetRunning)continue;
       const remote=rebuildCollection(k,grouped[k]),byId=new Map();
-      (remote||[]).forEach(v=>{if(v?.deleted===true){markVisitDeleted(v.id);return}if(v&&v.id!==undefined&&!isVisitDeleted(v))byId.set(String(v.id),v)});
-      (db.visits||[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v)&&!byId.has(String(v.id)))byId.set(String(v.id),v)});
+      (remote||[]).forEach(v=>{if(v?.deleted===true){markVisitDeleted(v.id);return}if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v))byId.set(String(v.id),v)});
+      (db.visits||[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v)&&!byId.has(String(v.id)))byId.set(String(v.id),v)});
       const merged=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
       const before=JSON.stringify(db.visits||[]);db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
       if(before!==JSON.stringify(merged))changed=true;
@@ -910,6 +917,8 @@ async function cloudPushDiff(force=false){
  if(!cloudEnabled||cloudPushRunning||(!cloudDirty&&!force))return;
  cloudPushRunning=true;clearTimeout(cloudPushTimer);cloudPushTimer=null;
  try{
+  await fetchVisitDeletes();
+  await fetchVisitResetCutoff();
   const upserts=[];const deletes=[];const now=new Date().toISOString();
   for(const k of CLOUD_COLLECTIONS){
     const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
@@ -1252,10 +1261,9 @@ let studentVisitPullRunning=false;
 async function fetchStudentVisitsFromCloud(st){
  if(!st||!cloudEnabled)return [];
  const found=new Map();
+ await fetchVisitDeletes();
+ await fetchVisitResetCutoff();
  const addRows=rows=>{(Array.isArray(rows)?rows:[]).forEach(row=>{const v=row?.data;if(v?.deleted===true){markVisitDeleted(v.id??row?.item_key);found.delete(String(v.id??row?.item_key));return}if(v&&v.id!==undefined&&!isVisitDeleted(v))found.set(String(v.id),v)})};
- // Fonte compartilhada principal: livro global de vistos, independente do cache/local de cada aparelho.
- const ledger=await fetchVisitLedger().catch(()=>[]);
- ledger.filter(v=>!isVisitDeleted(v)&&visitMatchesStudent(v,st)).forEach(v=>found.set(String(v.id),v));
  const login=String(st.login||'').trim();
  if(login){
   const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc');
@@ -1275,7 +1283,7 @@ async function pullStudentVisitsOnly(){
   const remote=await fetchStudentVisitsFromCloud(S.user),byId=new Map();
   /* Mantém os registros locais já conhecidos e acrescenta/atualiza os confirmados
      pela nuvem. Nunca zera o aluno por causa de uma resposta temporariamente vazia. */
-  (Array.isArray(db.visits)?db.visits:[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v))byId.set(String(v.id),v)});
+  (Array.isArray(db.visits)?db.visits:[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v))byId.set(String(v.id),v)});
   remote.forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
   db.visits=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
   localStorage.setItem('jc_visits',JSON.stringify(db.visits));
@@ -1348,25 +1356,23 @@ async function processVisitBatch(){
 async function deleteVisit(id){
  const key=String(id),v=(db.visits||[]).find(x=>String(x.id)===key);if(!v)return;
  if(!confirm(`Excluir o visto de ${v.nome} em ${visitDateLabel(v.date)}?`))return;
- // Marca primeiro a exclusão local para que nenhum sincronizador possa ressuscitar o registro.
- markVisitDeleted(key);clearVisitPending(key);
- db.visits=(db.visits||[]).filter(x=>String(x.id)!==key);
- localStorage.setItem('jc_visits',JSON.stringify(db.visits));
- refreshVisitCounters();updateVisitRoster();
  try{
-  const tombstone={...v,deleted:true,deletedAt:Date.now(),updatedAt:Date.now()};
-  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visits',item_key:key,data:tombstone,updated_at:new Date().toISOString()}])});
-  // Retira também do livro redundante para que áreas antigas não voltem a apresentá-lo.
-  const ledger=await fetchVisitLedger().catch(()=>[]);
-  const clean=(Array.isArray(ledger)?ledger:[]).filter(x=>String(x?.id)!==key&&!isVisitDeleted(x));
-  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_LEDGER_COLLECTION,item_key:VISIT_LEDGER_KEY,data:{visits:clean,updatedAt:Date.now()},updated_at:new Date().toISOString()}])});
-  if(cloudShadow.visits)cloudShadow.visits[key]=JSON.stringify(tombstone);
-  toast('Visto excluído e sincronizado.');
+  // A exclusão compartilhada é gravada e confirmada ANTES de retirar o visto local.
+  // Assim nenhum outro aparelho consegue vencer a exclusão com um cache antigo.
+  await publishVisitDelete(v);
+  markVisitDeleted(key);clearVisitPending(key);
+  db.visits=(db.visits||[]).filter(x=>String(x.id)!==key);
+  localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+  // Limpeza física é apenas manutenção; visitDeletes é a autoridade da exclusão.
+  try{await cloudRequest('/rest/v1/jc_records?collection=eq.visits&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}})}catch(err){console.warn('Limpeza física do visto não permitida; exclusão lógica já confirmada.',err)}
+  if(cloudShadow.visits)delete cloudShadow.visits[key];
+  refreshVisitCounters();updateVisitRoster();
+  toast('Visto excluído e confirmado na nuvem.');
+  await syncVisitsDirect();
  }catch(err){
-  console.warn('Falha ao sincronizar exclusão do visto:',err);
-  toast('Visto excluído neste aparelho. A sincronização continuará tentando.');
+  console.warn('Falha ao confirmar exclusão do visto:',err);
+  toast('Não foi possível confirmar a exclusão na nuvem. O visto foi mantido.');
  }
- setTimeout(()=>syncVisitsDirect(),100);
 }
 function refreshVisitCounters(){
  if(S.page!=="visitsTeacher")return;
@@ -1480,6 +1486,13 @@ async function closeVisitsInCloud(snapshot,archive,newPeriod){
  // aparelho poderá ressuscitar registros anteriores a este fechamento.
  const cutoff=Date.now();
  await saveVisitResetCutoff(cutoff,newPeriod);
+ // Registra exclusões permanentes dos IDs encerrados. Isso impede qualquer aparelho
+ // antigo/offline de republicar um visto do período fechado.
+ if(Array.isArray(snapshot)&&snapshot.length){
+  const dels=snapshot.filter(v=>v&&v.id!==undefined).map(v=>({collection:VISIT_DELETE_COLLECTION,item_key:String(v.id),data:{visitId:String(v.id),deletedAt:cutoff,reason:'period-close'},updated_at:new Date(cutoff).toISOString()}));
+  if(dels.length)await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(dels)});
+  dels.forEach(d=>markVisitDeleted(d.item_key));
+ }
  // 3) tenta a limpeza física. Se a política RLS não permitir DELETE, os registros
  // antigos podem continuar armazenados, mas ficam inativos pelo marco acima.
  try{await cloudRequest('/rest/v1/jc_records?collection=eq.visits',{method:'DELETE',headers:{'Prefer':'return=minimal'}})}catch(err){console.warn('DELETE físico dos vistos não permitido; usando fechamento lógico seguro.',err)}
