@@ -709,17 +709,31 @@ async function pullVisitLedger(){
 async function pushVisitImmediately(v){
  if(!cloudEnabled||!v)return false;
  const key=String(v.id);
- await fetchVisitDeletes();
- if(isVisitDeleted(key)){clearVisitPending(key);return false;}
- try{
-  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visits',item_key:key,data:v,updated_at:new Date().toISOString()}])});
-  // Confirma no servidor antes de liberar a proteção local. POST 2xx sozinho não basta.
-  const check=await cloudRequest('/rest/v1/jc_records?select=item_key,data&collection=eq.visits&item_key=eq.'+encodeURIComponent(key)+'&limit=1');
-  const confirmed=await check.json();
-  if(!Array.isArray(confirmed)||!confirmed.length)throw new Error('O visto não apareceu na nuvem após a gravação.');
-  if(!cloudShadow.visits)cloudShadow.visits={};
-  cloudShadow.visits[key]=JSON.stringify(v);clearVisitPending(key);cloudLastPush=Date.now();visitDiag.lastWriteOk=true;visitDiag.error='';updateCloudIndicators();updateVisitDiagnosticBox();return true;
- }catch(err){cloudLastError=err.message;visitDiag.lastWriteOk=false;visitDiag.error=String(err?.message||err);visitDiag.lastCheck=Date.now();cloudDirty=true;scheduleCloudPush();updateVisitDiagnosticBox();console.warn('Falha ao gravar visto imediatamente:',err);return false}
+ /* Um visto NOVO usa ID único e deve ser enviado diretamente. Não consultamos
+    visitDeletes antes do POST: essa consulta era capaz de bloquear/atrasar a
+    gravação no aparelho que originou a leitura. As lápides continuam valendo
+    para registros antigos durante as rotinas de merge/sincronização. */
+ let lastErr=null;
+ for(let attempt=1;attempt<=3;attempt++){
+  try{
+   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visits',item_key:key,data:v,updated_at:new Date().toISOString()}])});
+   const check=await cloudRequest('/rest/v1/jc_records?select=item_key,data&collection=eq.visits&item_key=eq.'+encodeURIComponent(key)+'&limit=1');
+   const confirmed=await check.json();
+   const row=Array.isArray(confirmed)?confirmed.find(x=>String(x?.item_key)===key):null;
+   if(!row||String(row?.data?.id)!==key)throw new Error('O visto não apareceu na nuvem após a gravação.');
+   if(!cloudShadow.visits)cloudShadow.visits={};
+   cloudShadow.visits[key]=JSON.stringify(v);
+   clearVisitPending(key);
+   cloudLastPush=Date.now();cloudLastError='';visitDiag.lastWriteOk=true;visitDiag.error='';
+   updateCloudIndicators();updateVisitDiagnosticBox();
+   return true;
+  }catch(err){
+   lastErr=err;
+   if(attempt<3)await new Promise(resolve=>setTimeout(resolve,350*attempt));
+  }
+ }
+ const err=lastErr||new Error('Falha ao gravar visto na nuvem.');
+ cloudLastError=err.message;visitDiag.lastWriteOk=false;visitDiag.error=String(err?.message||err);visitDiag.lastCheck=Date.now();cloudDirty=true;scheduleCloudPush();updateVisitDiagnosticBox();console.warn('Falha ao gravar visto imediatamente:',err);return false;
 }
 
 function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
@@ -1320,7 +1334,7 @@ async function registerVisitRaw(raw,quiet=false){
  const st=findStudentFromQr(raw);if(!st){if(!quiet)setVisitResult("err","Aluno não encontrado","Use o novo QR do aluno (ALUNO|9B|30) ou o formato antigo 9ºB - 30. Nome do aluno.");return {ok:false,reason:"notfound"}}
  const today=visitDateKey();if(visitsForStudent(st).some(v=>v.date===today)){if(!quiet)setVisitStudentResult("warn",st,"Este aluno já recebeu o visto de hoje.",`Total: ${visitTotal(st)} vistos`);return {ok:false,reason:"duplicate",student:st}}
  if(!Array.isArray(db.visits))db.visits=[];
- const now=Date.now(),studentKey=visitStudentKey(st),safeStudentKey=String(studentKey).replace(/[^A-Za-z0-9_-]+/g,'_'),id=`VISTO_${safeStudentKey}_${today}_${now}`;
+ const now=Date.now(),studentKey=visitStudentKey(st),safeStudentKey=String(studentKey).replace(/[^A-Za-z0-9_-]+/g,'_'),nonce=(globalThis.crypto?.randomUUID?crypto.randomUUID().replace(/-/g,'').slice(0,12):Math.random().toString(36).slice(2,14)),id=`VISTO_${safeStudentKey}_${today}_${now}_${nonce}`;
  const vp=currentVisitPeriod();
  const visit={id,studentKey,login:st.login,nome:st.nome,turma:st.turma,chamada:Number(st.chamada)||st.chamada,date:today,year:vp.year,bimester:vp.bimester,createdAt:now,updatedAt:now,raw:raw.slice(0,500)};
  db.visits.push(visit);markVisitPending(visit);
