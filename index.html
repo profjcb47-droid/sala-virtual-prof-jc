@@ -561,13 +561,14 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
-const APP_BUILD="20260922-2030-supabase-rest-auth-fix";
+const APP_BUILD="20260922-2020-visit-sync-diagnostic";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","schedule","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
 const CLOUD_STORAGE_BUCKET="jc-files";
 const CLOUD_SYNC_VERSION="3.0";
 let cloudEnabled=true,cloudReady=false,cloudDirty=false,cloudPushTimer=null,cloudPushRunning=false,cloudPullRunning=false,cloudLastError="",cloudLastPull=0,cloudLastPush=0;
+let visitDiag={lastCheck:0,httpStatus:null,remoteCount:null,error:"",lastWriteOk:null};
 let studentExcelImportInProgress=false;
 const cloudShadow={};
 /* Exclusões de alunos são explícitas. A ausência de um aluno na cópia local nunca
@@ -684,8 +685,8 @@ async function pushVisitImmediately(v){
   // Segunda confirmação compartilhada: mantém um livro único de vistos que todos os aparelhos leem.
   await saveVisitLedger([v]);
   if(!cloudShadow.visits)cloudShadow.visits={};
-  cloudShadow.visits[key]=JSON.stringify(v);clearVisitPending(key);cloudLastPush=Date.now();updateCloudIndicators();return true;
- }catch(err){cloudLastError=err.message;cloudDirty=true;scheduleCloudPush();console.warn('Falha ao gravar visto imediatamente:',err);return false}
+  cloudShadow.visits[key]=JSON.stringify(v);clearVisitPending(key);cloudLastPush=Date.now();visitDiag.lastWriteOk=true;visitDiag.error='';updateCloudIndicators();updateVisitDiagnosticBox();return true;
+ }catch(err){cloudLastError=err.message;visitDiag.lastWriteOk=false;visitDiag.error=String(err?.message||err);visitDiag.lastCheck=Date.now();cloudDirty=true;scheduleCloudPush();updateVisitDiagnosticBox();console.warn('Falha ao gravar visto imediatamente:',err);return false}
 }
 
 function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra}}
@@ -722,8 +723,14 @@ async function cloudRequest(path,options={}){
  const method=String(options.method||'GET').toUpperCase();
  const fetchOptions={...options,cache:'no-store',headers:{...supabaseRestHeaders({'Cache-Control':'no-cache'}),...(options.headers||{})}};
  if(method==='GET')fetchOptions.cache='no-store';
- const r=await fetch(SUPABASE_URL+path,fetchOptions);
- if(!r.ok){const text=await r.text().catch(()=>"");throw new Error(`Supabase ${r.status}: ${text||r.statusText}`)}
+ let r;
+ try{r=await fetch(SUPABASE_URL+path,fetchOptions)}catch(err){
+  if(String(path).includes('jc_records')){visitDiag.lastCheck=Date.now();visitDiag.httpStatus=0;visitDiag.error='Falha de rede/CORS: '+String(err?.message||err)}
+  throw err
+ }
+ if(String(path).includes('jc_records')){visitDiag.lastCheck=Date.now();visitDiag.httpStatus=r.status}
+ if(!r.ok){const text=await r.text().catch(()=>"");const msg=`Supabase ${r.status}: ${text||r.statusText}`;if(String(path).includes('jc_records'))visitDiag.error=msg;throw new Error(msg)}
+ if(String(path).includes('jc_records'))visitDiag.error='';
  return r
 }
 async function reconcileStudentsCloud(){
@@ -1540,6 +1547,23 @@ function toggleVisitRoster(){
  btn.setAttribute("aria-expanded",opening?"true":"false");
 }
 
+async function runVisitDiagnostic(){
+ const box=byId('visitSyncDiagnostic');
+ if(box)box.innerHTML='<b>🔎 Diagnóstico:</b> verificando a conexão com a base compartilhada...';
+ try{
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc&limit=1000&_ts='+Date.now());
+  const rows=await r.json();
+  visitDiag.remoteCount=Array.isArray(rows)?rows.length:0;visitDiag.lastCheck=Date.now();visitDiag.httpStatus=r.status;visitDiag.error='';
+ }catch(err){visitDiag.remoteCount=null;visitDiag.lastCheck=Date.now();visitDiag.error=String(err?.message||err)}
+ updateVisitDiagnosticBox();
+}
+function updateVisitDiagnosticBox(){
+ const box=byId('visitSyncDiagnostic');if(!box)return;
+ const local=(db.visits||[]).length,remote=visitDiag.remoteCount;
+ const when=visitDiag.lastCheck?new Date(visitDiag.lastCheck).toLocaleTimeString('pt-BR'):'—';
+ const status=visitDiag.error?'ERRO':(remote===null?'NÃO TESTADO':'CONECTADO');
+ box.innerHTML=`<b>🔎 Diagnóstico da sincronização de vistos</b><div class="small" style="margin-top:7px;line-height:1.55"><b>Estado:</b> ${e(status)}<br><b>Vistos neste aparelho:</b> ${local}<br><b>Vistos lidos da nuvem:</b> ${remote===null?'—':remote}<br><b>HTTP:</b> ${visitDiag.httpStatus===null?'—':visitDiag.httpStatus}<br><b>Último teste:</b> ${e(when)}${visitDiag.error?`<br><b>Erro:</b> ${e(visitDiag.error)}`:''}</div><button class="secondary" style="margin-top:9px" onclick="runVisitDiagnostic()">🔄 Testar conexão agora</button>`;
+}
 function visitsTeacher(){
  stopVisitCamera();
  const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v)),classes=[...(db.classes||CLASSES||[])];
@@ -1560,6 +1584,7 @@ function visitsTeacher(){
    <button class="primary" style="width:100%;margin-top:8px" onclick="processVisitBatch()">Registrar lista</button>
   </section>
  </div>
+ <section class="panel" style="margin-top:14px;border:1px solid #b9d7f5;background:#f7fbff"><div id="visitSyncDiagnostic"><b>🔎 Diagnóstico da sincronização de vistos</b><div class="small muted" style="margin-top:6px">Toque em “Testar conexão agora” para comparar este aparelho com a base compartilhada.</div><button class="secondary" style="margin-top:9px" onclick="runVisitDiagnostic()">🔄 Testar conexão agora</button></div></section>
  <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).filter(visitInCurrentPeriod).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
 
  <section class="panel visitRecentPanel" style="margin-top:14px">
@@ -1580,6 +1605,7 @@ function visitsTeacher(){
   </div>
  </section>
  <section class="visitDangerZone"><h3>⚙️ Fechamento de período</h3><p class="small muted">Use estes comandos somente no fechamento do bimestre ou no início de um novo ano letivo. Ambos exigem confirmação.</p><div class="visitDangerActions"><button class="secondary" onclick="endVisitBimester()">📘 Encerrar bimestre e zerar vistos</button><button class="danger" onclick="startNewVisitYear()">🗓️ Iniciar novo ano e começar do zero</button></div></section>`;
+ setTimeout(runVisitDiagnostic,120);
 }
 
 function studentVisits(){
