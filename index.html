@@ -561,7 +561,7 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
-const APP_BUILD="20260922-2020-visit-sync-diagnostic";
+const APP_BUILD="20260923-0708-visit-sync-postgrest-fix";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","schedule","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
@@ -613,7 +613,7 @@ function mergeVisitLists(...lists){
  return [...m.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
 }
 async function fetchVisitLedger(){
- const r=await cloudRequest('/rest/v1/jc_records?collection=eq.'+VISIT_LEDGER_COLLECTION+'&item_key=eq.'+VISIT_LEDGER_KEY+'&select=data,updated_at&limit=1&_ts='+Date.now());
+ const r=await cloudRequest('/rest/v1/jc_records?collection=eq.'+VISIT_LEDGER_COLLECTION+'&item_key=eq.'+VISIT_LEDGER_KEY+'&select=data,updated_at&limit=1');
  const rows=await r.json();
  return Array.isArray(rows)&&rows[0]?.data?.visits?rows[0].data.visits:[];
 }
@@ -637,7 +637,7 @@ async function syncVisitsDirect(){
    const payload=local.map(v=>({collection:'visits',item_key:String(v.id),data:v,updated_at:now}));
    await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(payload)});
   }
-  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc&_ts='+Date.now());
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
   const rows=await r.json();
   const remote=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&v.id!==undefined);
   const merged=mergeVisitLists(local,remote);
@@ -1228,12 +1228,12 @@ async function fetchStudentVisitsFromCloud(st){
  ledger.filter(v=>visitMatchesStudent(v,st)).forEach(v=>found.set(String(v.id),v));
  const login=String(st.login||'').trim();
  if(login){
-  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc&_ts='+Date.now());
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc');
   addRows(await r.json());
  }
  /* Alguns vistos antigos podem não ter login, mas possuem turma e chamada. Como a
     quantidade de vistos é pequena, esta leitura complementar continua leve. */
- const r2=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc&_ts='+Date.now());
+ const r2=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
  const all=await r2.json();
  addRows((Array.isArray(all)?all:[]).filter(row=>visitMatchesStudent(row?.data,st)));
  return [...found.values()];
@@ -1551,7 +1551,7 @@ async function runVisitDiagnostic(){
  const box=byId('visitSyncDiagnostic');
  if(box)box.innerHTML='<b>🔎 Diagnóstico:</b> verificando a conexão com a base compartilhada...';
  try{
-  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc&limit=1000&_ts='+Date.now());
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc&limit=1000');
   const rows=await r.json();
   visitDiag.remoteCount=Array.isArray(rows)?rows.length:0;visitDiag.lastCheck=Date.now();visitDiag.httpStatus=r.status;visitDiag.error='';
  }catch(err){visitDiag.remoteCount=null;visitDiag.lastCheck=Date.now();visitDiag.error=String(err?.message||err)}
