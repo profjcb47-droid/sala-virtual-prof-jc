@@ -603,6 +603,22 @@ function saveVisitPendingKeys(){localStorage.setItem("jc_visit_pending_keys",JSO
 function markVisitPending(v){if(v?.id!==undefined){visitPendingKeys.add(String(v.id));saveVisitPendingKeys()}}
 function clearVisitPending(id){if(visitPendingKeys.delete(String(id)))saveVisitPendingKeys()}
 const VISIT_LEDGER_COLLECTION='visitLedger',VISIT_LEDGER_KEY='global';
+const VISIT_CONTROL_COLLECTION='visitControl',VISIT_CONTROL_KEY='reset';
+let visitResetCutoff=Number(localStorage.getItem('jc_visit_reset_cutoff')||0)||0;
+function visitAfterReset(v){return !visitResetCutoff||Number(v?.createdAt||v?.updatedAt||0)>visitResetCutoff}
+async function fetchVisitResetCutoff(){
+ try{
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.'+VISIT_CONTROL_COLLECTION+'&item_key=eq.'+VISIT_CONTROL_KEY+'&select=data,updated_at&limit=1');
+  const rows=await r.json(),cut=Number(rows?.[0]?.data?.cutoff||0)||0;
+  if(cut>visitResetCutoff){visitResetCutoff=cut;localStorage.setItem('jc_visit_reset_cutoff',String(cut));db.visits=(db.visits||[]).filter(visitAfterReset);localStorage.setItem('jc_visits',JSON.stringify(db.visits));}
+ }catch(err){console.warn('Falha ao ler marco de fechamento dos vistos:',err)}
+ return visitResetCutoff;
+}
+async function saveVisitResetCutoff(cutoff,period){
+ const now=new Date().toISOString();
+ await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_CONTROL_COLLECTION,item_key:VISIT_CONTROL_KEY,data:{cutoff,period,updatedAt:Date.now()},updated_at:now}])});
+ visitResetCutoff=cutoff;localStorage.setItem('jc_visit_reset_cutoff',String(cutoff));
+}
 function mergeVisitLists(...lists){
  const m=new Map();
  for(const list of lists)for(const v of (Array.isArray(list)?list:[])){
@@ -630,9 +646,11 @@ async function syncVisitsDirect(){
  if(!cloudEnabled||directVisitSyncRunning||visitPeriodResetRunning||!S.user)return;
  directVisitSyncRunning=true;
  try{
-  // Canal exclusivo dos vistos: não depende do estado da sincronização geral.
-  // Primeiro publica tudo que este aparelho conhece, depois relê a coleção inteira.
-  const local=Array.isArray(db.visits)?db.visits.filter(v=>v&&v.id!==undefined):[];
+  // Antes de publicar, lê o marco de fechamento compartilhado. Assim um aparelho
+  // que ficou offline não consegue reenviar vistos de um período já encerrado.
+  await fetchVisitResetCutoff();
+  const local=Array.isArray(db.visits)?db.visits.filter(v=>v&&v.id!==undefined&&visitAfterReset(v)):[];
+  if(local.length!==(db.visits||[]).length){db.visits=local;localStorage.setItem('jc_visits',JSON.stringify(db.visits));}
   if(local.length){
    const now=new Date().toISOString();
    const payload=local.map(v=>({collection:'visits',item_key:String(v.id),data:v,updated_at:now}));
@@ -640,7 +658,7 @@ async function syncVisitsDirect(){
   }
   const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
   const rows=await r.json();
-  const remote=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&v.id!==undefined);
+  const remote=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&v.id!==undefined&&visitAfterReset(v));
   const merged=mergeVisitLists(local,remote);
   const changed=JSON.stringify(merged)!==JSON.stringify(db.visits||[]);
   db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
@@ -658,9 +676,9 @@ async function pullVisitLedger(){
  if(!cloudEnabled||visitLedgerPullRunning||visitPeriodResetRunning||!S.user)return;
  visitLedgerPullRunning=true;
  try{
-  const remote=await fetchVisitLedger();
+  const remote=(await fetchVisitLedger()).filter(visitAfterReset);
   if(remote.length){
-   const merged=mergeVisitLists(db.visits||[],remote);
+   const merged=mergeVisitLists((db.visits||[]).filter(visitAfterReset),remote);
    if(JSON.stringify(merged)!==JSON.stringify(db.visits||[])){
     db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
     if(S.user?.role==='student'){
@@ -1210,7 +1228,7 @@ function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).spli
 function normalizeVisitText(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª]/g,"").replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ")}
 function visitStudentKey(st){return studentIdentityKey(st)||String(st?.login||'')}
 function visitMatchesStudent(v,st){if(!v||!st)return false;const key=visitStudentKey(st);if(v.studentKey&&key&&String(v.studentKey)===String(key))return true;if(v.turma&&v.chamada&&normalizeStudentClassKey(v.turma)===normalizeStudentClassKey(st.turma)&&Number(v.chamada)===Number(st.chamada))return true;return !!st.login&&!!v.login&&String(v.login)===String(st.login)}
-function visitInCurrentPeriod(v){const p=currentVisitPeriod();if(!v?.bimester&&!v?.year)return true;if(Number(v.bimester)===Number(p.bimester)&&Number(v.year||p.year)===Number(p.year))return true;if(S.user?.role==='student'&&String(v.date||'')===visitDateKey()&&Number(v.year||p.year)===Number(p.year))return true;return false}
+function visitInCurrentPeriod(v){if(!visitAfterReset(v))return false;const p=currentVisitPeriod();if(!v?.bimester&&!v?.year)return true;if(Number(v.bimester)===Number(p.bimester)&&Number(v.year||p.year)===Number(p.year))return true;if(S.user?.role==='student'&&String(v.date||'')===visitDateKey()&&Number(v.year||p.year)===Number(p.year))return true;return false}
 function visitsForStudent(studentOrLogin){const st=typeof studentOrLogin==='object'?studentOrLogin:(db.students||[]).find(x=>x.login===studentOrLogin);return (Array.isArray(db.visits)?db.visits:[]).filter(v=>visitInCurrentPeriod(v)&&(st?visitMatchesStudent(v,st):v.login===studentOrLogin)).sort((a,b)=>Number(b.createdAt||b.id||0)-Number(a.createdAt||a.id||0))}
 function visitTotal(studentOrLogin){return visitsForStudent(studentOrLogin).length}
 /* Atualização leve e independente dos vistos do aluno. Não depende do ciclo geral
@@ -1430,9 +1448,15 @@ async function closeVisitsInCloud(snapshot,archive,newPeriod){
  const now=new Date().toISOString();
  // 1) arquiva uma cópia antes de remover os vistos ativos.
  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visitArchives',item_key:String(archive.id),data:archive,updated_at:now}])});
- // 2) remove explicitamente TODOS os vistos ativos compartilhados.
- await cloudRequest('/rest/v1/jc_records?collection=eq.visits',{method:'DELETE',headers:{'Prefer':'return=minimal'}});
- // 3) zera também o livro redundante, para ele nunca ressuscitar registros encerrados.
+ // 2) publica PRIMEIRO um marco de fechamento compartilhado. Este é o mecanismo
+ // definitivo: mesmo que o Supabase não permita DELETE pela chave pública, nenhum
+ // aparelho poderá ressuscitar registros anteriores a este fechamento.
+ const cutoff=Date.now();
+ await saveVisitResetCutoff(cutoff,newPeriod);
+ // 3) tenta a limpeza física. Se a política RLS não permitir DELETE, os registros
+ // antigos podem continuar armazenados, mas ficam inativos pelo marco acima.
+ try{await cloudRequest('/rest/v1/jc_records?collection=eq.visits',{method:'DELETE',headers:{'Prefer':'return=minimal'}})}catch(err){console.warn('DELETE físico dos vistos não permitido; usando fechamento lógico seguro.',err)}
+ // 4) zera também o livro redundante, para ele nunca ressuscitar registros encerrados.
  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_LEDGER_COLLECTION,item_key:VISIT_LEDGER_KEY,data:{visits:[],updatedAt:Date.now()},updated_at:now}])});
  // 4) publica o novo período imediatamente.
  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([
@@ -1451,7 +1475,7 @@ async function endVisitBimester(){
   // Consolida a nuvem antes do arquivo, para o histórico conter vistos feitos em qualquer aparelho.
   const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=data&order=updated_at.desc');
   const rows=await r.json();
-  const remote=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&v.id!==undefined);
+  const remote=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&v.id!==undefined&&visitAfterReset(v));
   const snapshot=mergeVisitLists(db.visits||[],remote);
   const archive={id:Date.now()+Math.floor(Math.random()*1000),kind:'bimester',label:`${p.bimester}º Bimestre de ${p.year}`,year:p.year,bimester:p.bimester,total:snapshot.length,endedAt:Date.now(),visits:snapshot.map(v=>({...v}))};
   const next={year:p.year,bimester:p.bimester<4?p.bimester+1:4};
@@ -1590,9 +1614,10 @@ async function runVisitDiagnostic(){
  const box=byId('visitSyncDiagnostic');
  if(box)box.innerHTML='<b>🔎 Diagnóstico:</b> verificando a conexão com a base compartilhada...';
  try{
+  await fetchVisitResetCutoff();
   const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc&limit=1000');
   const rows=await r.json();
-  visitDiag.remoteCount=Array.isArray(rows)?rows.length:0;visitDiag.lastCheck=Date.now();visitDiag.httpStatus=r.status;visitDiag.error='';
+  visitDiag.remoteCount=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&visitAfterReset(v)).length;visitDiag.lastCheck=Date.now();visitDiag.httpStatus=r.status;visitDiag.error='';
  }catch(err){visitDiag.remoteCount=null;visitDiag.lastCheck=Date.now();visitDiag.error=String(err?.message||err)}
  updateVisitDiagnosticBox();
 }
