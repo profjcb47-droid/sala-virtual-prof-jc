@@ -602,6 +602,12 @@ let visitPendingKeys=new Set(JSON.parse(localStorage.getItem("jc_visit_pending_k
 function saveVisitPendingKeys(){localStorage.setItem("jc_visit_pending_keys",JSON.stringify([...visitPendingKeys]))}
 function markVisitPending(v){if(v?.id!==undefined){visitPendingKeys.add(String(v.id));saveVisitPendingKeys()}}
 function clearVisitPending(id){if(visitPendingKeys.delete(String(id)))saveVisitPendingKeys()}
+/* Exclusões individuais de vistos usam uma lápide (tombstone) compartilhada.
+   Assim outro aparelho nunca consegue recriar um visto já excluído a partir do cache. */
+let visitDeletedKeys=new Set(JSON.parse(localStorage.getItem("jc_visit_deleted_keys")||"[]"));
+function saveVisitDeletedKeys(){localStorage.setItem("jc_visit_deleted_keys",JSON.stringify([...visitDeletedKeys]))}
+function markVisitDeleted(id){if(id!==undefined&&id!==null){visitDeletedKeys.add(String(id));saveVisitDeletedKeys()}}
+function isVisitDeleted(vOrId){const id=typeof vOrId==='object'?vOrId?.id:vOrId;return id!==undefined&&visitDeletedKeys.has(String(id))}
 const VISIT_LEDGER_COLLECTION='visitLedger',VISIT_LEDGER_KEY='global';
 const VISIT_CONTROL_COLLECTION='visitControl',VISIT_CONTROL_KEY='reset';
 let visitResetCutoff=Number(localStorage.getItem('jc_visit_reset_cutoff')||0)||0;
@@ -622,7 +628,7 @@ async function saveVisitResetCutoff(cutoff,period){
 function mergeVisitLists(...lists){
  const m=new Map();
  for(const list of lists)for(const v of (Array.isArray(list)?list:[])){
-  if(!v||v.id===undefined)continue;
+  if(!v||v.id===undefined||v.deleted===true||isVisitDeleted(v))continue;
   const key=String(v.id),old=m.get(key);
   if(!old||Number(v.updatedAt||v.createdAt||0)>=Number(old.updatedAt||old.createdAt||0))m.set(key,v);
  }
@@ -658,8 +664,11 @@ async function syncVisitsDirect(){
   }
   const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
   const rows=await r.json();
-  const remote=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&v.id!==undefined&&visitAfterReset(v));
-  const merged=mergeVisitLists(local,remote);
+  const cloudRows=Array.isArray(rows)?rows:[];
+  cloudRows.forEach(x=>{const v=x?.data;if(v?.deleted===true)markVisitDeleted(v.id??x.item_key)});
+  const remote=cloudRows.map(x=>x?.data).filter(v=>v&&v.id!==undefined&&v.deleted!==true&&!isVisitDeleted(v)&&visitAfterReset(v));
+  const cleanLocal=local.filter(v=>!isVisitDeleted(v));
+  const merged=mergeVisitLists(cleanLocal,remote);
   const changed=JSON.stringify(merged)!==JSON.stringify(db.visits||[]);
   db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
   // Mantém também o livro compartilhado como redundância, sem depender dele para sincronizar.
@@ -676,7 +685,7 @@ async function pullVisitLedger(){
  if(!cloudEnabled||visitLedgerPullRunning||visitPeriodResetRunning||!S.user)return;
  visitLedgerPullRunning=true;
  try{
-  const remote=(await fetchVisitLedger()).filter(visitAfterReset);
+  const remote=(await fetchVisitLedger()).filter(v=>visitAfterReset(v)&&!isVisitDeleted(v));
   if(remote.length){
    const merged=mergeVisitLists((db.visits||[]).filter(visitAfterReset),remote);
    if(JSON.stringify(merged)!==JSON.stringify(db.visits||[])){
@@ -838,8 +847,8 @@ async function cloudPull(initial=false){
     if(k==="visits"){
       if(visitPeriodResetRunning)continue;
       const remote=rebuildCollection(k,grouped[k]),byId=new Map();
-      (remote||[]).forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
-      (db.visits||[]).forEach(v=>{if(v&&v.id!==undefined&&!byId.has(String(v.id)))byId.set(String(v.id),v)});
+      (remote||[]).forEach(v=>{if(v?.deleted===true){markVisitDeleted(v.id);return}if(v&&v.id!==undefined&&!isVisitDeleted(v))byId.set(String(v.id),v)});
+      (db.visits||[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v)&&!byId.has(String(v.id)))byId.set(String(v.id),v)});
       const merged=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
       const before=JSON.stringify(db.visits||[]);db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
       if(before!==JSON.stringify(merged))changed=true;
@@ -1243,10 +1252,10 @@ let studentVisitPullRunning=false;
 async function fetchStudentVisitsFromCloud(st){
  if(!st||!cloudEnabled)return [];
  const found=new Map();
- const addRows=rows=>{(Array.isArray(rows)?rows:[]).forEach(row=>{const v=row?.data;if(v&&v.id!==undefined)found.set(String(v.id),v)})};
+ const addRows=rows=>{(Array.isArray(rows)?rows:[]).forEach(row=>{const v=row?.data;if(v?.deleted===true){markVisitDeleted(v.id??row?.item_key);found.delete(String(v.id??row?.item_key));return}if(v&&v.id!==undefined&&!isVisitDeleted(v))found.set(String(v.id),v)})};
  // Fonte compartilhada principal: livro global de vistos, independente do cache/local de cada aparelho.
  const ledger=await fetchVisitLedger().catch(()=>[]);
- ledger.filter(v=>visitMatchesStudent(v,st)).forEach(v=>found.set(String(v.id),v));
+ ledger.filter(v=>!isVisitDeleted(v)&&visitMatchesStudent(v,st)).forEach(v=>found.set(String(v.id),v));
  const login=String(st.login||'').trim();
  if(login){
   const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc');
@@ -1266,7 +1275,7 @@ async function pullStudentVisitsOnly(){
   const remote=await fetchStudentVisitsFromCloud(S.user),byId=new Map();
   /* Mantém os registros locais já conhecidos e acrescenta/atualiza os confirmados
      pela nuvem. Nunca zera o aluno por causa de uma resposta temporariamente vazia. */
-  (Array.isArray(db.visits)?db.visits:[]).forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
+  (Array.isArray(db.visits)?db.visits:[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v))byId.set(String(v.id),v)});
   remote.forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
   db.visits=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
   localStorage.setItem('jc_visits',JSON.stringify(db.visits));
@@ -1336,10 +1345,28 @@ async function processVisitBatch(){
  ta.value="";refreshVisitCounters();updateVisitRoster();
  setVisitResult(added?"ok":"warn",`${added} visto(s) registrado(s).`,`${saved} confirmado(s) na nuvem • ${duplicates} repetido(s) hoje • ${notfound} não encontrado(s)`);
 }
-function deleteVisit(id){
- const v=(db.visits||[]).find(x=>String(x.id)===String(id));if(!v)return;
+async function deleteVisit(id){
+ const key=String(id),v=(db.visits||[]).find(x=>String(x.id)===key);if(!v)return;
  if(!confirm(`Excluir o visto de ${v.nome} em ${visitDateLabel(v.date)}?`))return;
- db.visits=db.visits.filter(x=>String(x.id)!==String(id));persist();visitsTeacher()
+ // Marca primeiro a exclusão local para que nenhum sincronizador possa ressuscitar o registro.
+ markVisitDeleted(key);clearVisitPending(key);
+ db.visits=(db.visits||[]).filter(x=>String(x.id)!==key);
+ localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+ refreshVisitCounters();updateVisitRoster();
+ try{
+  const tombstone={...v,deleted:true,deletedAt:Date.now(),updatedAt:Date.now()};
+  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visits',item_key:key,data:tombstone,updated_at:new Date().toISOString()}])});
+  // Retira também do livro redundante para que áreas antigas não voltem a apresentá-lo.
+  const ledger=await fetchVisitLedger().catch(()=>[]);
+  const clean=(Array.isArray(ledger)?ledger:[]).filter(x=>String(x?.id)!==key&&!isVisitDeleted(x));
+  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_LEDGER_COLLECTION,item_key:VISIT_LEDGER_KEY,data:{visits:clean,updatedAt:Date.now()},updated_at:new Date().toISOString()}])});
+  if(cloudShadow.visits)cloudShadow.visits[key]=JSON.stringify(tombstone);
+  toast('Visto excluído e sincronizado.');
+ }catch(err){
+  console.warn('Falha ao sincronizar exclusão do visto:',err);
+  toast('Visto excluído neste aparelho. A sincronização continuará tentando.');
+ }
+ setTimeout(()=>syncVisitsDirect(),100);
 }
 function refreshVisitCounters(){
  if(S.page!=="visitsTeacher")return;
