@@ -625,8 +625,9 @@ async function saveVisitLedger(extraVisits=[]){
  return visits;
 }
 let directVisitSyncRunning=false;
+let visitPeriodResetRunning=false;
 async function syncVisitsDirect(){
- if(!cloudEnabled||directVisitSyncRunning||!S.user)return;
+ if(!cloudEnabled||directVisitSyncRunning||visitPeriodResetRunning||!S.user)return;
  directVisitSyncRunning=true;
  try{
   // Canal exclusivo dos vistos: não depende do estado da sincronização geral.
@@ -654,7 +655,7 @@ async function syncVisitsDirect(){
 }
 let visitLedgerPullRunning=false;
 async function pullVisitLedger(){
- if(!cloudEnabled||visitLedgerPullRunning||!S.user)return;
+ if(!cloudEnabled||visitLedgerPullRunning||visitPeriodResetRunning||!S.user)return;
  visitLedgerPullRunning=true;
  try{
   const remote=await fetchVisitLedger();
@@ -817,6 +818,7 @@ async function cloudPull(initial=false){
        Une nuvem + aparelho pela chave do visto; exclusão continua sendo somente
        pela ação explícita Excluir. */
     if(k==="visits"){
+      if(visitPeriodResetRunning)continue;
       const remote=rebuildCollection(k,grouped[k]),byId=new Map();
       (remote||[]).forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
       (db.visits||[]).forEach(v=>{if(v&&v.id!==undefined&&!byId.has(String(v.id)))byId.set(String(v.id),v)});
@@ -892,6 +894,7 @@ async function cloudPushDiff(force=false){
       studentDeleteKeys.forEach(key=>deletes.push([k,key]));
       // Chaves antigas/duplicadas não são apagadas automaticamente. A interface as consolida pela identidade Turma + Nº; exclusão física só ocorre por ação explícita do professor.
     }else if(k==="visits"){
+      if(visitPeriodResetRunning)continue;
       /* Vistos são históricos aditivos. Nunca apagar da nuvem só porque um aparelho
          ainda não possui uma leitura feita em outro dispositivo. */
     }else{
@@ -1239,7 +1242,7 @@ async function fetchStudentVisitsFromCloud(st){
  return [...found.values()];
 }
 async function pullStudentVisitsOnly(){
- if(!cloudEnabled||studentVisitPullRunning||S.user?.role!=="student")return;
+ if(!cloudEnabled||studentVisitPullRunning||visitPeriodResetRunning||S.user?.role!=="student")return;
  studentVisitPullRunning=true;
  try{
   const remote=await fetchStudentVisitsFromCloud(S.user),byId=new Map();
@@ -1418,17 +1421,53 @@ function archiveCurrentVisits(kind,label){
    visits:snapshot
  });
 }
-function endVisitBimester(){
+async function waitVisitSyncIdle(){
+ const until=Date.now()+8000;
+ while((directVisitSyncRunning||cloudPushRunning||cloudPullRunning||visitLedgerPullRunning)&&Date.now()<until)await new Promise(r=>setTimeout(r,80));
+}
+async function closeVisitsInCloud(snapshot,archive,newPeriod){
+ if(!cloudEnabled)throw new Error("Sem conexão com a nuvem.");
+ const now=new Date().toISOString();
+ // 1) arquiva uma cópia antes de remover os vistos ativos.
+ await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visitArchives',item_key:String(archive.id),data:archive,updated_at:now}])});
+ // 2) remove explicitamente TODOS os vistos ativos compartilhados.
+ await cloudRequest('/rest/v1/jc_records?collection=eq.visits',{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+ // 3) zera também o livro redundante, para ele nunca ressuscitar registros encerrados.
+ await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_LEDGER_COLLECTION,item_key:VISIT_LEDGER_KEY,data:{visits:[],updatedAt:Date.now()},updated_at:now}])});
+ // 4) publica o novo período imediatamente.
+ await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([
+  {collection:'visitPeriod',item_key:'year',data:newPeriod.year,updated_at:now},
+  {collection:'visitPeriod',item_key:'bimester',data:newPeriod.bimester,updated_at:now}
+ ])});
+}
+async function endVisitBimester(){
  const p=currentVisitPeriod(),count=(db.visits||[]).length;
  const answer=prompt(`ENCERRAR ${p.bimester}º BIMESTRE DE ${p.year}\n\nExistem ${count} visto(s) no período atual.\nO histórico será arquivado e a contagem dos alunos voltará para 0.\n\nPara confirmar, digite: ENCERRAR`);
  if(String(answer||"").trim().toUpperCase()!=="ENCERRAR")return toast("Operação cancelada.");
- archiveCurrentVisits("bimester",`${p.bimester}º Bimestre de ${p.year}`);
- db.visits=[];
- if(p.bimester<4)db.visitPeriod={year:p.year,bimester:p.bimester+1};
- else db.visitPeriod={year:p.year,bimester:4};
- persist();
- toast(`Bimestre encerrado. A nova contagem começou em 0.`);
- visitsTeacher()
+ if(visitPeriodResetRunning)return toast("O fechamento já está em andamento.");
+ visitPeriodResetRunning=true;
+ try{
+  await waitVisitSyncIdle();
+  // Consolida a nuvem antes do arquivo, para o histórico conter vistos feitos em qualquer aparelho.
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=data&order=updated_at.desc');
+  const rows=await r.json();
+  const remote=(Array.isArray(rows)?rows:[]).map(x=>x?.data).filter(v=>v&&v.id!==undefined);
+  const snapshot=mergeVisitLists(db.visits||[],remote);
+  const archive={id:Date.now()+Math.floor(Math.random()*1000),kind:'bimester',label:`${p.bimester}º Bimestre de ${p.year}`,year:p.year,bimester:p.bimester,total:snapshot.length,endedAt:Date.now(),visits:snapshot.map(v=>({...v}))};
+  const next={year:p.year,bimester:p.bimester<4?p.bimester+1:4};
+  await closeVisitsInCloud(snapshot,archive,next);
+  if(!Array.isArray(db.visitArchives))db.visitArchives=[];
+  db.visitArchives.push(archive);db.visits=[];db.visitPeriod=next;
+  visitPendingKeys.clear();saveVisitPendingKeys();
+  localStorage.setItem('jc_visitArchives',JSON.stringify(db.visitArchives));
+  localStorage.setItem('jc_visits','[]');localStorage.setItem('jc_visitPeriod',JSON.stringify(db.visitPeriod));
+  localStorage.setItem('jc_visit_bimester_selected',String(next.bimester));
+  cloudShadow.visits={};cloudShadow.visitArchives=serializeMap(cloudEntries('visitArchives'));cloudShadow.visitPeriod=serializeMap(cloudEntries('visitPeriod'));
+  cloudDirty=false;cloudLastError='';
+  toast(`Bimestre encerrado e sincronizado. A nova contagem começou em 0.`);
+ }catch(err){
+  cloudLastError=String(err?.message||err);toast('Não foi possível encerrar o bimestre na nuvem. Nenhum visto foi apagado neste aparelho.');
+ }finally{visitPeriodResetRunning=false;visitsTeacher();setTimeout(()=>syncVisitsDirect(),300)}
 }
 function startNewVisitYear(){
  const p=currentVisitPeriod(),suggested=p.year+1;
