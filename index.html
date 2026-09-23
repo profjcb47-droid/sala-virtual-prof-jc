@@ -1648,7 +1648,6 @@ function visitsTeacher(){
    <button class="primary" style="width:100%;margin-top:8px" onclick="processVisitBatch()">Registrar lista</button>
   </section>
  </div>
- <section class="panel" style="margin-top:14px;border:1px solid #b9d7f5;background:#f7fbff"><div id="visitSyncDiagnostic"><b>🔎 Diagnóstico da sincronização de vistos</b><div class="small muted" style="margin-top:6px">Toque em “Testar conexão agora” para comparar este aparelho com a base compartilhada.</div><button class="secondary" style="margin-top:9px" onclick="runVisitDiagnostic()">🔄 Testar conexão agora</button></div></section>
  <div class="visitTeacherStats"><div class="visitStat"><span>Vistos hoje</span><b id="visitTodayCount">${todayRows.length}</b></div><div class="visitStat"><span>Total acumulado</span><b id="visitAllCount">${(db.visits||[]).filter(visitInCurrentPeriod).length}</b></div><div class="visitStat"><span>Turma selecionada</span><b style="font-size:20px">${e(S.cls)}</b></div></div>
 
  <section class="panel visitRecentPanel" style="margin-top:14px">
@@ -1669,7 +1668,6 @@ function visitsTeacher(){
   </div>
  </section>
  <section class="visitDangerZone"><h3>⚙️ Fechamento de período</h3><p class="small muted">Use estes comandos somente no fechamento do bimestre ou no início de um novo ano letivo. Ambos exigem confirmação.</p><div class="visitDangerActions"><button class="secondary" onclick="endVisitBimester()">📘 Encerrar bimestre e zerar vistos</button><button class="danger" onclick="startNewVisitYear()">🗓️ Iniciar novo ano e começar do zero</button></div></section>`;
- setTimeout(runVisitDiagnostic,120);
 }
 
 function studentVisits(){
