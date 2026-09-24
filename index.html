@@ -1259,7 +1259,28 @@ function visitDateKey(ts=Date.now()){const d=new Date(ts),y=d.getFullYear(),m=St
 function visitDateLabel(key){if(!key)return "—";const [y,m,d]=String(key).split("-").map(Number);return new Date(y,m-1,d).toLocaleDateString("pt-BR",{weekday:"short",day:"2-digit",month:"2-digit",year:"numeric"})}
 function normalizeVisitText(v){return String(v||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[º°ª]/g,"").replace(/[^a-z0-9]+/g," ").trim().replace(/\s+/g," ")}
 function visitStudentKey(st){return studentIdentityKey(st)||String(st?.login||'')}
-function visitMatchesStudent(v,st){if(!v||!st)return false;const key=visitStudentKey(st);if(v.studentKey&&key&&String(v.studentKey)===String(key))return true;if(v.turma&&v.chamada&&normalizeStudentClassKey(v.turma)===normalizeStudentClassKey(st.turma)&&Number(v.chamada)===Number(st.chamada))return true;return !!st.login&&!!v.login&&String(v.login)===String(st.login)}
+function normalizeVisitLogin(v){return String(v||'').trim().toLowerCase()}
+function canonicalStudentForVisits(st){
+ if(!st)return st;
+ const students=Array.isArray(db.students)?db.students:[];
+ const login=normalizeVisitLogin(st.login);
+ if(login){const byLogin=students.find(x=>normalizeVisitLogin(x?.login)===login);if(byLogin)return byLogin}
+ const key=studentIdentityKey(st);
+ if(key){const byKey=students.find(x=>studentIdentityKey(x)===key);if(byKey)return byKey}
+ return st
+}
+function visitMatchesStudent(v,st){
+ if(!v||!st)return false;
+ const c=canonicalStudentForVisits(st),key=visitStudentKey(c);
+ if(v.studentKey&&key&&String(v.studentKey)===String(key))return true;
+ if(v.turma&&v.chamada&&normalizeStudentClassKey(v.turma)===normalizeStudentClassKey(c.turma)&&Number(v.chamada)===Number(c.chamada))return true;
+ const sl=normalizeVisitLogin(c.login),vl=normalizeVisitLogin(v.login);
+ if(sl&&vl&&sl===vl)return true;
+ /* Compatibilidade final para vistos antigos sem login/studentKey: só aceita nome
+    idêntico dentro da mesma turma. Isso não altera cadastro nem QR. */
+ if(!v.studentKey&&!vl&&v.nome&&c.nome&&normalizeVisitText(v.nome)===normalizeVisitText(c.nome)&&normalizeStudentClassKey(v.turma)===normalizeStudentClassKey(c.turma))return true;
+ return false
+}
 function visitInCurrentPeriod(v){if(!visitAfterReset(v))return false;const p=currentVisitPeriod();if(!v?.bimester&&!v?.year)return true;if(Number(v.bimester)===Number(p.bimester)&&Number(v.year||p.year)===Number(p.year))return true;if(S.user?.role==='student'&&String(v.date||'')===visitDateKey()&&Number(v.year||p.year)===Number(p.year))return true;return false}
 function visitsForStudent(studentOrLogin){const st=typeof studentOrLogin==='object'?studentOrLogin:(db.students||[]).find(x=>x.login===studentOrLogin);return (Array.isArray(db.visits)?db.visits:[]).filter(v=>visitInCurrentPeriod(v)&&(st?visitMatchesStudent(v,st):v.login===studentOrLogin)).sort((a,b)=>Number(b.createdAt||b.id||0)-Number(a.createdAt||a.id||0))}
 function visitTotal(studentOrLogin){return visitsForStudent(studentOrLogin).length}
@@ -1294,6 +1315,10 @@ async function pullStudentVisitsOnly(){
  if(!cloudEnabled||studentVisitPullRunning||visitPeriodResetRunning||S.user?.role!=="student")return;
  studentVisitPullRunning=true;
  try{
+  /* Reassocia a sessão ao cadastro canônico atual antes de contar. Assim uma sessão
+     antiga do aluno não fica presa a turma/chamada desatualizadas no navegador. */
+  const canonical=canonicalStudentForVisits(S.user);
+  if(canonical&&canonical!==S.user)S.user={...S.user,...canonical,role:'student'};
   const remote=await fetchStudentVisitsFromCloud(S.user),byId=new Map();
   /* Mantém os registros locais já conhecidos e acrescenta/atualiza os confirmados
      pela nuvem. Nunca zera o aluno por causa de uma resposta temporariamente vazia. */
