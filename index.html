@@ -954,6 +954,10 @@ async function cloudPushDiff(force=false){
   await fetchVisitResetCutoff();
   const upserts=[];const deletes=[];const now=new Date().toISOString();
   for(const k of CLOUD_COLLECTIONS){
+    /* HORÁRIO ESCOLAR é salvo exclusivamente por saveScheduleKeyImmediately().
+       Nunca fazer push/delete genérico desta coleção: um aparelho com cache
+       incompleto poderia apagar horários válidos gravados por outro aparelho. */
+    if(k==="schedule")continue;
     const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
     current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
     if(k==="students"){
@@ -3018,6 +3022,12 @@ async function saveScheduleKeyImmediately(key,data){
       const rows=await r.json();
       const row=Array.isArray(rows)?rows.find(x=>String(x?.item_key)===k):null;
       if(!row||JSON.stringify(row.data)!==JSON.stringify(data))throw new Error('A nuvem não confirmou o horário.');
+      // Confirma com uma NOVA leitura do servidor. A resposta do próprio POST
+      // não basta: só consideramos salvo quando o registro pode ser relido.
+      const verify=await cloudRequest('/rest/v1/jc_records?collection=eq.schedule&item_key=eq.'+encodeURIComponent(k)+'&select=item_key,data,updated_at&limit=1&_ts='+Date.now());
+      const verifyRows=await verify.json();
+      const confirmed=Array.isArray(verifyRows)?verifyRows.find(x=>String(x?.item_key)===k):null;
+      if(!confirmed||JSON.stringify(confirmed.data)!==JSON.stringify(data))throw new Error('O horário não permaneceu salvo na nuvem.');
       db.schedule[k]=data;
       protectConfirmedSchedule(k,data);
       localStorage.setItem('jc_schedule',JSON.stringify(db.schedule)); // somente cache da cópia confirmada
