@@ -896,11 +896,9 @@ async function cloudPull(initial=false){
     /* HORÁRIO: uma resposta antiga da nuvem nunca pode apagar uma edição que
        ainda está sendo confirmada neste aparelho. Mescla somente as chaves
        pendentes locais por cima da leitura remota. */
-    if(k==="schedule"&&schedulePendingKeys.size){
-      const merged={...(rebuilt||{})};
-      schedulePendingKeys.forEach(key=>{if(Object.prototype.hasOwnProperty.call(db.schedule||{},key))merged[key]=db.schedule[key]});
-      rebuilt=merged;
-      cloudDirty=true;
+    if(k==="schedule"&&(schedulePendingKeys.size||scheduleRecentConfirmed.size)){
+      rebuilt=applyScheduleWriteGuards(rebuilt);
+      if(schedulePendingKeys.size)cloudDirty=true;
     }
     /* ALUNOS: sincronizacao aditiva e nao destrutiva. Registros remotos e locais
        sao unidos pela chave de login. Um cadastro novo nunca substitui a lista
@@ -2996,6 +2994,19 @@ const SCHEDULE_SUBJECTS=["Artes","Ciências","Eletiva","E.O. Mat.","E.O. Port.",
 function scheduleSubjectStyle(v){const c=scheduleSubjectPalette(v);return `background:${c.bg};border-color:${c.bd};color:${c.fg}`}
 function paintScheduleSubject(input){if(!input)return;const c=scheduleSubjectPalette(input.value);input.style.backgroundColor=c.bg;input.style.borderColor=c.bd;input.style.color=c.fg}
 const schedulePendingKeys=new Set();
+// Protege uma gravação de horário já confirmada contra respostas GET antigas que
+// tenham começado antes do POST terminar. Não altera outras coleções.
+const scheduleRecentConfirmed=new Map();
+function protectConfirmedSchedule(key,data){scheduleRecentConfirmed.set(String(key),{data,until:Date.now()+15000})}
+function applyScheduleWriteGuards(remote){
+  const merged={...(remote||{})},now=Date.now();
+  schedulePendingKeys.forEach(key=>{if(Object.prototype.hasOwnProperty.call(db.schedule||{},key))merged[key]=db.schedule[key]});
+  for(const [key,rec] of scheduleRecentConfirmed){
+    if(!rec||rec.until<=now){scheduleRecentConfirmed.delete(key);continue}
+    merged[key]=rec.data;
+  }
+  return merged;
+}
 async function saveScheduleKeyImmediately(key,data){
   if(!cloudEnabled)throw new Error('Nuvem indisponível.');
   const k=String(key),stamp=new Date().toISOString();
@@ -3008,6 +3019,7 @@ async function saveScheduleKeyImmediately(key,data){
       const row=Array.isArray(rows)?rows.find(x=>String(x?.item_key)===k):null;
       if(!row||JSON.stringify(row.data)!==JSON.stringify(data))throw new Error('A nuvem não confirmou o horário.');
       db.schedule[k]=data;
+      protectConfirmedSchedule(k,data);
       localStorage.setItem('jc_schedule',JSON.stringify(db.schedule)); // somente cache da cópia confirmada
       cloudShadow.schedule=cloudShadow.schedule||{};
       cloudShadow.schedule[k]=JSON.stringify(data);
