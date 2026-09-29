@@ -3011,6 +3011,25 @@ function applyScheduleWriteGuards(remote){
   }
   return merged;
 }
+let scheduleDirectPullRunning=false;
+async function pullScheduleDirect(){
+  if(!cloudEnabled||scheduleDirectPullRunning||schedulePendingKeys.size)return false;
+  scheduleDirectPullRunning=true;
+  try{
+    const r=await cloudRequest('/rest/v1/jc_records?collection=eq.schedule&select=item_key,data,updated_at&order=updated_at.asc&_ts='+Date.now());
+    const rows=await r.json();
+    let remote={};
+    for(const row of (Array.isArray(rows)?rows:[]))remote[String(row.item_key)]=row.data;
+    remote=applyScheduleWriteGuards(remote);
+    const before=JSON.stringify(db.schedule||{}),after=JSON.stringify(remote);
+    db.schedule=remote;
+    localStorage.setItem('jc_schedule',after);
+    const sm={};for(const row of (Array.isArray(rows)?rows:[]))sm[String(row.item_key)]=JSON.stringify(row.data);cloudShadow.schedule=sm;
+    if(before!==after&&S.user&&(S.page==='schedule'||S.page==='coordSchedule'))schedule();
+    return true;
+  }catch(err){console.warn('Falha ao atualizar horário diretamente da nuvem:',err);return false}
+  finally{scheduleDirectPullRunning=false}
+}
 async function saveScheduleKeyImmediately(key,data){
   if(!cloudEnabled)throw new Error('Nuvem indisponível.');
   const k=String(key),stamp=new Date().toISOString();
@@ -3565,8 +3584,9 @@ async function checkPublishedBuild(){
 }
 setInterval(checkPublishedBuild,30000);
 window.addEventListener('pageshow',()=>{checkPublishedBuild();if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
-window.addEventListener('focus',()=>{if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
+setInterval(()=>{if(S.user)pullScheduleDirect()},2000);
+window.addEventListener('focus',()=>{if(S.user){pullScheduleDirect();syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user){pullScheduleDirect();syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
 window.addEventListener('online',()=>{if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
 setTimeout(()=>{
  initCloud().finally(()=>{
