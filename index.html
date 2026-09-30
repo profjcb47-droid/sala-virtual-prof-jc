@@ -893,13 +893,6 @@ async function cloudPull(initial=false){
     /* O Supabase é a fonte oficial depois que as alterações locais foram
        confirmadas. */
     let rebuilt=rebuildCollection(k,grouped[k]);
-    /* HORÁRIO: uma resposta antiga da nuvem nunca pode apagar uma edição que
-       ainda está sendo confirmada neste aparelho. Mescla somente as chaves
-       pendentes locais por cima da leitura remota. */
-    if(k==="schedule"&&(schedulePendingKeys.size||scheduleRecentConfirmed.size)){
-      rebuilt=applyScheduleWriteGuards(rebuilt);
-      if(schedulePendingKeys.size)cloudDirty=true;
-    }
     /* ALUNOS: sincronizacao aditiva e nao destrutiva. Registros remotos e locais
        sao unidos pela chave de login. Um cadastro novo nunca substitui a lista
        inteira nem remove colegas de qualquer turma. Exclusoes continuam somente
@@ -954,10 +947,6 @@ async function cloudPushDiff(force=false){
   await fetchVisitResetCutoff();
   const upserts=[];const deletes=[];const now=new Date().toISOString();
   for(const k of CLOUD_COLLECTIONS){
-    /* HORÁRIO ESCOLAR é salvo exclusivamente por saveScheduleKeyImmediately().
-       Nunca fazer push/delete genérico desta coleção: um aparelho com cache
-       incompleto poderia apagar horários válidos gravados por outro aparelho. */
-    if(k==="schedule")continue;
     const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
     current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
     if(k==="students"){
@@ -2997,86 +2986,12 @@ function scheduleSubjectPalette(v){
 const SCHEDULE_SUBJECTS=["Artes","Ciências","Eletiva","E.O. Mat.","E.O. Port.","Ed. Física","Geografia","História","Inglês","Matemática","Português"];
 function scheduleSubjectStyle(v){const c=scheduleSubjectPalette(v);return `background:${c.bg};border-color:${c.bd};color:${c.fg}`}
 function paintScheduleSubject(input){if(!input)return;const c=scheduleSubjectPalette(input.value);input.style.backgroundColor=c.bg;input.style.borderColor=c.bd;input.style.color=c.fg}
-const schedulePendingKeys=new Set();
-// Protege uma gravação de horário já confirmada contra respostas GET antigas que
-// tenham começado antes do POST terminar. Não altera outras coleções.
-const scheduleRecentConfirmed=new Map();
-function protectConfirmedSchedule(key,data){scheduleRecentConfirmed.set(String(key),{data,until:Date.now()+15000})}
-function applyScheduleWriteGuards(remote){
-  const merged={...(remote||{})},now=Date.now();
-  schedulePendingKeys.forEach(key=>{if(Object.prototype.hasOwnProperty.call(db.schedule||{},key))merged[key]=db.schedule[key]});
-  for(const [key,rec] of scheduleRecentConfirmed){
-    if(!rec||rec.until<=now){scheduleRecentConfirmed.delete(key);continue}
-    merged[key]=rec.data;
-  }
-  return merged;
+function setScheduleSubject(key,input){
+  const value=String(input.value||"").trim();
+  db.schedule[key]=value||"—";
+  paintScheduleSubject(input);
+  persist();
 }
-let scheduleDirectPullRunning=false;
-async function pullScheduleDirect(){
-  if(!cloudEnabled||scheduleDirectPullRunning||schedulePendingKeys.size)return false;
-  scheduleDirectPullRunning=true;
-  try{
-    const r=await cloudRequest('/rest/v1/jc_records?collection=eq.schedule&select=item_key,data,updated_at&order=updated_at.asc&_ts='+Date.now());
-    const rows=await r.json();
-    let remote={};
-    for(const row of (Array.isArray(rows)?rows:[]))remote[String(row.item_key)]=row.data;
-    remote=applyScheduleWriteGuards(remote);
-    const before=JSON.stringify(db.schedule||{}),after=JSON.stringify(remote);
-    db.schedule=remote;
-    localStorage.setItem('jc_schedule',after);
-    const sm={};for(const row of (Array.isArray(rows)?rows:[]))sm[String(row.item_key)]=JSON.stringify(row.data);cloudShadow.schedule=sm;
-    if(before!==after&&S.user&&(S.page==='schedule'||S.page==='coordSchedule'))schedule();
-    return true;
-  }catch(err){console.warn('Falha ao atualizar horário diretamente da nuvem:',err);return false}
-  finally{scheduleDirectPullRunning=false}
-}
-async function saveScheduleKeyImmediately(key,data){
-  if(!cloudEnabled)throw new Error('Nuvem indisponível.');
-  const k=String(key),stamp=new Date().toISOString();
-  schedulePendingKeys.add(k);
-  let lastErr=null;
-  for(let attempt=1;attempt<=3;attempt++){
-    try{
-      // Usa exatamente o mesmo modo de UPSERT já usado com sucesso pelas demais
-      // coleções do aplicativo. Alguns projetos Supabase/RLS aceitam a gravação,
-      // mas não permitem `return=representation` no POST; isso fazia o horário
-      // ser tratado como falha mesmo quando a escrita era permitida.
-      await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'schedule',item_key:k,data,updated_at:new Date().toISOString()}])});
-      // Confirma com uma NOVA leitura do servidor. Só consideramos salvo quando
-      // o mesmo valor pode ser relido da nuvem.
-      const verify=await cloudRequest('/rest/v1/jc_records?collection=eq.schedule&item_key=eq.'+encodeURIComponent(k)+'&select=item_key,data,updated_at&limit=1&_ts='+Date.now());
-      const verifyRows=await verify.json();
-      const confirmed=Array.isArray(verifyRows)?verifyRows.find(x=>String(x?.item_key)===k):null;
-      if(!confirmed||JSON.stringify(confirmed.data)!==JSON.stringify(data))throw new Error('O horário não permaneceu salvo na nuvem.');
-      db.schedule[k]=data;
-      protectConfirmedSchedule(k,data);
-      localStorage.setItem('jc_schedule',JSON.stringify(db.schedule)); // somente cache da cópia confirmada
-      cloudShadow.schedule=cloudShadow.schedule||{};
-      cloudShadow.schedule[k]=JSON.stringify(data);
-      schedulePendingKeys.delete(k);
-      cloudLastPush=Date.now();cloudLastError='';cloudReady=true;updateCloudIndicators();
-      return true;
-    }catch(err){lastErr=err;if(attempt<3)await new Promise(r=>setTimeout(r,350*attempt));}
-  }
-  schedulePendingKeys.delete(k);
-  cloudLastError=String(lastErr?.message||lastErr||'Falha ao salvar horário na nuvem');
-  updateCloudIndicators();
-  throw lastErr||new Error(cloudLastError);
-}
-async function setScheduleSubject(key,input){
-  const oldValue=String(db.schedule[key]||'—');
-  const value=String(input.value||'').trim()||'—';
-  input.disabled=true;
-  try{
-    await saveScheduleKeyImmediately(key,value);
-    input.value=value;paintScheduleSubject(input);
-    toast('Disciplina salva na nuvem.');
-  }catch(err){
-    input.value=oldValue;paintScheduleSubject(input);
-    toast('Não foi possível salvar na nuvem. A alteração não foi aplicada.');
-  }finally{input.disabled=false;}
-}
-
 function scheduleSubjectOptions(current){
   const value=String(current||"—");
   const base=["—",...SCHEDULE_SUBJECTS];
@@ -3084,7 +2999,7 @@ function scheduleSubjectOptions(current){
   return base.map(x=>`<option value="${e(x)}" ${x===value?'selected':''}>${e(x)}</option>`).join('');
 }
 function schedule(){const cls=S.user.role==="teacher"?S.cls:S.user.turma,days=["Segunda","Terça","Quarta","Quinta","Sexta"],defaults=[["08:00","10:00"],["10:00","12:00"],["13:00","15:00"],["15:00","17:00"],["17:00","19:00"],["19:00","21:00"]];page.innerHTML=`<a class="back" href="#" onclick="go('${S.user.role==="teacher"?"teacher":"student"}');return false">← Início</a><h1 class="center">Horário escolar</h1><p class="sub">${e(cls)}</p>${S.user.role==="teacher"?`<div class="tabs">${CLASSES.map(c=>`<button class="${c===S.cls?"active":""}" onclick="S.cls='${c}';schedule()">${c}</button>`).join("")}</div><div class="notice"><b>Horários editáveis:</b> mantenha ou altere início e fim livremente. Em cada aula, <b>selecione a disciplina</b> na lista. As disciplinas estão em ordem alfabética, a cor aparece automaticamente e será exibida também para o aluno.</div>`:""}<div class="panel tableWrap"><table class="scheduleTable"><thead><tr><th>Horário</th>${days.map(d=>`<th>${d}</th>`).join("")}</tr></thead><tbody>${defaults.map((df,i)=>{const sk=cls+"|slot|"+i,st=db.schedule[sk]||{start:df[0],end:df[1]};return `<tr><td>${S.user.role==="teacher"?`<div class="timeInputs"><input type="time" value="${st.start}" onchange="setSlot('${cls}',${i},'start',this.value)"><input type="time" value="${st.end}" onchange="setSlot('${cls}',${i},'end',this.value)"></div>`:`<b>${st.start}–${st.end}</b>`}</td>${days.map(d=>{const k=cls+"|"+d+"|"+i,v=db.schedule[k]||"—";return `<td>${S.user.role==="teacher"?`<select class="scheduleSubject" onchange="setScheduleSubject('${k}',this)" style="${scheduleSubjectStyle(v)}">${scheduleSubjectOptions(v)}</select>`:`<div class="scheduleSubjectCell" style="${scheduleSubjectStyle(v)}">${e(v)}</div>`}</td>`}).join("")}</tr>`}).join("")}</tbody></table></div>`;if(S.user.role==="teacher")setTimeout(()=>document.querySelectorAll('select.scheduleSubject').forEach(paintScheduleSubject),0)}
-async function setSlot(cls,i,k,v){const key=cls+"|slot|"+i,oldVal={...(db.schedule[key]||{start:"08:00",end:"10:00"})},val={...oldVal};val[k]=v;try{await saveScheduleKeyImmediately(key,val);toast("Horário salvo na nuvem.")}catch(err){toast("Não foi possível salvar na nuvem. A alteração não foi aplicada.");schedule()}}
+function setSlot(cls,i,k,v){const key=cls+"|slot|"+i,val=db.schedule[key]||{start:"08:00",end:"10:00"};val[k]=v;db.schedule[key]=val;persist();toast("Horário atualizado.")}
 function libraryTypeLabel(item){if(item.kind==='text')return 'Texto';const n=String(item.fileName||'').toLowerCase();if(/\.pdf$/.test(n))return 'PDF';if(/\.(jpg|jpeg|png|webp|gif)$/.test(n))return 'Imagem';if(/\.(doc|docx|odt|rtf)$/.test(n))return 'Documento';return 'Arquivo'}
 function libraryTargetClasses(){const v=byId('libClass')?.value||S.cls;return v==='Todas as Turmas'?['Todas as Turmas']:[v]}
 const LIBRARY_ICON_IMAGES={
@@ -3584,9 +3499,8 @@ async function checkPublishedBuild(){
 }
 setInterval(checkPublishedBuild,30000);
 window.addEventListener('pageshow',()=>{checkPublishedBuild();if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
-setInterval(()=>{if(S.user)pullScheduleDirect()},2000);
-window.addEventListener('focus',()=>{if(S.user){pullScheduleDirect();syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user){pullScheduleDirect();syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
+window.addEventListener('focus',()=>{if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
 window.addEventListener('online',()=>{if(S.user){syncVisitsDirect();if(S.user.role==='student')pullStudentVisitsOnly()}});
 setTimeout(()=>{
  initCloud().finally(()=>{
