@@ -17,7 +17,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Sala Virtual Prof. JC — V8.4 Notas Online</title>
+<title>Sala Virtual Prof. JC — V8.5 Notas Online</title>
 <style>
 :root{--blue:#0876e8;--blue2:#075cb6;--ink:#11213b;--muted:#687586;--line:#dbe3ec;--paper:#fbfaf7;--green:#189e5a;--shadow:0 12px 30px rgba(16,33,59,.10)}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,Arial,Helvetica,sans-serif;color:var(--ink);background:var(--paper);overscroll-behavior:none}body{overflow-x:hidden}#root,.app{overscroll-behavior:none}button,input,select,textarea{font:inherit}.hidden{display:none!important}
@@ -771,7 +771,7 @@ function cloudEntries(collection){
 }
 function serializeMap(m){const out={};m.forEach((v,k)=>out[k]=JSON.stringify(v));return out}
 function rebuildCollection(collection,rows){
- if(collection==="schedule"||collection==="accesses"||collection==="activityViews"||collection==="contentViews"||collection==="libraryViews"||collection==="libraryLinks"||collection==="announcementReads"||collection==="highlightReads"||collection==="coordNotificationReads"||collection==="teacherNotificationReads"||collection==="visitPeriod"){const o={};rows.forEach(r=>o[r.item_key]=r.data);return o}
+ if(collection==="schedule"||collection==="accesses"||collection==="activityViews"||collection==="contentViews"||collection==="libraryViews"||collection==="libraryLinks"||collection==="announcementReads"||collection==="highlightReads"||collection==="coordNotificationReads"||collection==="teacherNotificationReads"||collection==="visitPeriod"){const o={},latest={};rows.forEach(r=>{const k=String(r.item_key);const t=Date.parse(r.updated_at||'')||0;if(!latest[k]||t>latest[k].t){latest[k]={t,data:r.data};o[k]=r.data}});return o}
  const arr=rows.map(r=>r.data);
  if(collection==="classes")return arr.map(String).filter(Boolean);
  if(collection==="students")arr.sort((a,b)=>String(a.turma||"").localeCompare(String(b.turma||""),'pt-BR')||Number(a.chamada||0)-Number(b.chamada||0));
@@ -867,6 +867,15 @@ async function cloudPull(initial=false){
       cloudDirty=true;
       continue;
     }
+    // Na primeira abertura desta versão, preserve o horário que já existe
+    // neste aparelho se ainda não houver nenhum horário na nuvem. A sincronização
+    // inicial será feita depois, sem apagar a grade local.
+    if(k==="schedule"&&initial&&grouped[k].length===0&&db.schedule&&Object.keys(db.schedule).length){
+      cloudShadow[k]={};
+      scheduleBootstrapPending=true;
+      cloudDirty=true;
+      continue;
+    }
     /* Enquanto houver uma alteração local de alunos aguardando confirmação
        da nuvem, nunca aplicar uma lista remota vazia/antiga por cima dela. */
     if(k==="students"&&localStorage.getItem("jc_students_pending_sync")==="1"){
@@ -953,6 +962,11 @@ async function cloudPushDiff(force=false){
   const upserts=[];const deletes=[];const now=new Date().toISOString();
   for(const k of CLOUD_COLLECTIONS){
     const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
+    // Horários são gravados por célula em saveScheduleKeyCloud(). Não deixe um
+    // aparelho que ficou aberto com uma cópia antiga reenviar essa cópia por cima
+    // do que outro aparelho acabou de salvar. Só fazemos o envio em lote durante
+    // a migração inicial de uma grade local para uma nuvem ainda vazia.
+    if(k==="schedule"&&!scheduleBootstrapPending)continue;
     current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
     if(k==="students"){
       /* Para alunos, só apagamos chaves marcadas por uma ação explícita de exclusão.
@@ -975,6 +989,7 @@ async function cloudPushDiff(force=false){
     await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
   }
   CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
+  if(scheduleBootstrapPending)scheduleBootstrapPending=false;
   localStorage.removeItem("jc_students_pending_sync");
   if(studentDeleteKeys.size){studentDeleteKeys.clear();saveStudentDeleteKeys()}
   studentLegacyCloudKeys.clear();
@@ -2999,27 +3014,32 @@ function scheduleSubjectStyle(v){const c=scheduleSubjectPalette(v);return `backg
 function paintScheduleSubject(input){if(!input)return;const c=scheduleSubjectPalette(input.value);input.style.backgroundColor=c.bg;input.style.borderColor=c.bd;input.style.color=c.fg}
 const schedulePendingKeys=new Set();
 let scheduleSaveRunning=false;
+let scheduleBootstrapPending=false;
 function saveScheduleLocal(){
  localStorage.setItem("jc_schedule",JSON.stringify(db.schedule||{}));
 }
 async function saveScheduleKeyCloud(key){
  if(!cloudEnabled||!key)return false;
- schedulePendingKeys.add(String(key));
+ const sk=String(key);
+ schedulePendingKeys.add(sk);
  saveScheduleLocal();
  try{
   const data=db.schedule[key];
+  const stamp=new Date().toISOString();
+  // Grava imediatamente a célula alterada. O upsert continua compatível com a
+  // instalação atual, mas a confirmação sempre lê o registro mais recente.
   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{
    method:'POST',
-   headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=representation'},
-   body:JSON.stringify([{collection:'schedule',item_key:String(key),data,updated_at:new Date().toISOString()}])
+   headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},
+   body:JSON.stringify([{collection:'schedule',item_key:sk,data,updated_at:stamp}])
   });
-  const check=await cloudRequest('/rest/v1/jc_records?collection=eq.schedule&item_key=eq.'+encodeURIComponent(String(key))+'&select=item_key,data&limit=1');
+  const check=await cloudRequest('/rest/v1/jc_records?collection=eq.schedule&item_key=eq.'+encodeURIComponent(sk)+'&select=item_key,data,updated_at&order=updated_at.desc&limit=1');
   const rows=await check.json();
-  const row=Array.isArray(rows)?rows.find(r=>String(r?.item_key)===String(key)):null;
-  if(!row||JSON.stringify(row.data)!==JSON.stringify(data))throw new Error('O horário não foi confirmado na nuvem.');
+  const row=Array.isArray(rows)?rows[0]:null;
+  if(!row||String(row?.item_key)!==sk||JSON.stringify(row.data)!==JSON.stringify(data))throw new Error('O horário não foi confirmado na nuvem.');
   cloudShadow.schedule=cloudShadow.schedule||{};
-  cloudShadow.schedule[String(key)]=JSON.stringify(data);
-  schedulePendingKeys.delete(String(key));
+  cloudShadow.schedule[sk]=JSON.stringify(data);
+  schedulePendingKeys.delete(sk);
   cloudLastError='';cloudLastPush=Date.now();
   return true;
  }catch(err){
