@@ -17,7 +17,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>Sala Virtual Prof. JC — V8.5 Notas Online</title>
+<title>Sala Virtual Prof. JC — V8.6 Notas Online</title>
 <style>
 :root{--blue:#0876e8;--blue2:#075cb6;--ink:#11213b;--muted:#687586;--line:#dbe3ec;--paper:#fbfaf7;--green:#189e5a;--shadow:0 12px 30px rgba(16,33,59,.10)}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Inter,Arial,Helvetica,sans-serif;color:var(--ink);background:var(--paper);overscroll-behavior:none}body{overflow-x:hidden}#root,.app{overscroll-behavior:none}button,input,select,textarea{font:inherit}.hidden{display:none!important}
@@ -561,10 +561,10 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
-const APP_BUILD="20260923-0708-visit-sync-postgrest-fix";
+const APP_BUILD="20260930-0918-schedule-cell-sync-v2";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
-const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","schedule","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
+const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
 const CLOUD_STORAGE_BUCKET="jc-files";
 const CLOUD_SYNC_VERSION="3.0";
 const CREDENTIALS_9G=[{"chamada":1,"nome":"Adriel Azarias Xavier","turma":"9º Ano G","login":"adrielazarias","senha":"2318"},{"chamada":2,"nome":"Adrielly Luiza Fernandes dos Santos","turma":"9º Ano G","login":"adriellyluiza","senha":"6830"},{"chamada":3,"nome":"Agatha Cristiny Sanches Neres","turma":"9º Ano G","login":"agathacristiny","senha":"3515"},{"chamada":4,"nome":"Alice Maria Marques do Nascimento","turma":"9º Ano G","login":"alicemaria","senha":"6780"},{"chamada":5,"nome":"Anna Julia Marques da Silva","turma":"9º Ano G","login":"annajulia","senha":"6563"},{"chamada":6,"nome":"Anna Jullia da Silva","turma":"9º Ano G","login":"annajullia","senha":"5017"},{"chamada":7,"nome":"Carlos Augusto Fleury Gutemberg","turma":"9º Ano G","login":"carlosaugusto","senha":"8550"},{"chamada":8,"nome":"Claudenor Junio Ferreira Rodrigues","turma":"9º Ano G","login":"claudenorjunio","senha":"8279"},{"chamada":9,"nome":"Dhenifer Christina Santos Carvalho","turma":"9º Ano G","login":"dheniferchristina","senha":"1862"},{"chamada":10,"nome":"Dyefferson Sirqueira de Araujo","turma":"9º Ano G","login":"dyeffersonsirqueira","senha":"5518"},{"chamada":11,"nome":"Eduarda Campos de Moura","turma":"9º Ano G","login":"eduardacampos","senha":"2070"},{"chamada":12,"nome":"Elloar Costa Santos","turma":"9º Ano G","login":"elloarcosta","senha":"9701"},{"chamada":13,"nome":"Enzo da Silva","turma":"9º Ano G","login":"enzoda","senha":"1638"},{"chamada":14,"nome":"Gabriel Rodrigues de Oliveira","turma":"9º Ano G","login":"gabrielrodrigues","senha":"7849"},{"chamada":15,"nome":"Giselly Cristina Barbosa Ferreira","turma":"9º Ano G","login":"gisellycristina","senha":"6653"},{"chamada":16,"nome":"Guilhermy Henrique Ferreira de Jesus","turma":"9º Ano G","login":"guilhermyhenrique","senha":"8206"},{"chamada":17,"nome":"Isabela Vitoria Oliveira Soares","turma":"9º Ano G","login":"isabelavitoria","senha":"8038"},{"chamada":18,"nome":"Isabella Oliveira da Cruz","turma":"9º Ano G","login":"isabellaoliveira","senha":"2364"},{"chamada":19,"nome":"Jhon Halex Ferreira Alves","turma":"9º Ano G","login":"jhonhalex","senha":"5044"},{"chamada":20,"nome":"João Pedro Rosa Lopes","turma":"9º Ano G","login":"joaopedro","senha":"4455"},{"chamada":21,"nome":"José Miguel Bezerra de Souza","turma":"9º Ano G","login":"josemiguel","senha":"3539"},{"chamada":22,"nome":"Kamilla Azarias da Silva","turma":"9º Ano G","login":"kamillaazarias","senha":"3201"},{"chamada":23,"nome":"Kauan Francisco Pinheiro","turma":"9º Ano G","login":"kauanfrancisco","senha":"4101"},{"chamada":24,"nome":"Marcos Eduardo Marques","turma":"9º Ano G","login":"marcoseduardo","senha":"3623"},{"chamada":25,"nome":"Marcos Wellington Celestino Costa","turma":"9º Ano G","login":"marcoswellington","senha":"1070"},{"chamada":26,"nome":"Maria Eduarda de Jesus Santana","turma":"9º Ano G","login":"mariaeduarda","senha":"1225"},{"chamada":27,"nome":"Myllenna Ferreira de Abreu","turma":"9º Ano G","login":"myllennaferreira","senha":"8239"},{"chamada":28,"nome":"Nikole Almeida Guimaraes","turma":"9º Ano G","login":"nikolealmeida","senha":"7872"},{"chamada":29,"nome":"Rafael Rodrigues Barros","turma":"9º Ano G","login":"rafaelrodrigues","senha":"2609"},{"chamada":30,"nome":"Safira Nunes da Silva","turma":"9º Ano G","login":"safiranunes","senha":"2610"},{"chamada":31,"nome":"Samily Alves Vieira de Brito","turma":"9º Ano G","login":"samilyalves","senha":"2611"},{"chamada":32,"nome":"Samuel Novaes de Oliveira","turma":"9º Ano G","login":"samuelnovaes","senha":"2612"},{"chamada":33,"nome":"Victor Gabriel Sousa Silva","turma":"9º Ano G","login":"victorgabriel2","senha":"2613"},{"chamada":34,"nome":"Weverton Santos da Mata","turma":"9º Ano G","login":"wevertonsantos","senha":"2614"},{"chamada":35,"nome":"Alice Maria Marques do Nascimento","turma":"9º Ano G","login":"alicemaria2","senha":"6998"}];
@@ -867,15 +867,6 @@ async function cloudPull(initial=false){
       cloudDirty=true;
       continue;
     }
-    // Na primeira abertura desta versão, preserve o horário que já existe
-    // neste aparelho se ainda não houver nenhum horário na nuvem. A sincronização
-    // inicial será feita depois, sem apagar a grade local.
-    if(k==="schedule"&&initial&&grouped[k].length===0&&db.schedule&&Object.keys(db.schedule).length){
-      cloudShadow[k]={};
-      scheduleBootstrapPending=true;
-      cloudDirty=true;
-      continue;
-    }
     /* Enquanto houver uma alteração local de alunos aguardando confirmação
        da nuvem, nunca aplicar uma lista remota vazia/antiga por cima dela. */
     if(k==="students"&&localStorage.getItem("jc_students_pending_sync")==="1"){
@@ -902,11 +893,6 @@ async function cloudPull(initial=false){
     /* O Supabase é a fonte oficial depois que as alterações locais foram
        confirmadas. */
     let rebuilt=rebuildCollection(k,grouped[k]);
-    /* HORÁRIO: enquanto uma célula estiver aguardando confirmação, a leitura
-       periódica da nuvem não pode apagar a alteração feita pelo professor. */
-    if(k==="schedule"&&schedulePendingKeys.size){
-      for(const key of schedulePendingKeys)if(Object.prototype.hasOwnProperty.call(db.schedule||{},key))rebuilt[key]=db.schedule[key];
-    }
     /* ALUNOS: sincronizacao aditiva e nao destrutiva. Registros remotos e locais
        sao unidos pela chave de login. Um cadastro novo nunca substitui a lista
        inteira nem remove colegas de qualquer turma. Exclusoes continuam somente
@@ -962,11 +948,6 @@ async function cloudPushDiff(force=false){
   const upserts=[];const deletes=[];const now=new Date().toISOString();
   for(const k of CLOUD_COLLECTIONS){
     const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
-    // Horários são gravados por célula em saveScheduleKeyCloud(). Não deixe um
-    // aparelho que ficou aberto com uma cópia antiga reenviar essa cópia por cima
-    // do que outro aparelho acabou de salvar. Só fazemos o envio em lote durante
-    // a migração inicial de uma grade local para uma nuvem ainda vazia.
-    if(k==="schedule"&&!scheduleBootstrapPending)continue;
     current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
     if(k==="students"){
       /* Para alunos, só apagamos chaves marcadas por uma ação explícita de exclusão.
@@ -989,7 +970,6 @@ async function cloudPushDiff(force=false){
     await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
   }
   CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
-  if(scheduleBootstrapPending)scheduleBootstrapPending=false;
   localStorage.removeItem("jc_students_pending_sync");
   if(studentDeleteKeys.size){studentDeleteKeys.clear();saveStudentDeleteKeys()}
   studentLegacyCloudKeys.clear();
@@ -1017,10 +997,11 @@ function updateCloudIndicators(){document.querySelectorAll('[data-cloud-status],
 async function initCloud(){
  await reconcileStudentsCloud();
  await cloudPull(true);
- setInterval(()=>syncNow(false),1500);
- window.addEventListener('focus',async()=>{await reconcileStudentsCloud();await syncNow(false)});
- window.addEventListener('online',async()=>{await reconcileStudentsCloud();await syncNow(false)});
- document.addEventListener('visibilitychange',async()=>{if(!document.hidden){await reconcileStudentsCloud();await syncNow(false)}});
+ await pullScheduleCloud(true);
+ setInterval(()=>{syncNow(false);pullScheduleCloud(false)},1500);
+ window.addEventListener('focus',async()=>{await reconcileStudentsCloud();await syncNow(false);await pullScheduleCloud(false)});
+ window.addEventListener('online',async()=>{await reconcileStudentsCloud();await syncNow(false);await pullScheduleCloud(false)});
+ document.addEventListener('visibilitychange',async()=>{if(!document.hidden){await reconcileStudentsCloud();await syncNow(false);await pullScheduleCloud(false)}});
 }
 
 setInterval(async()=>{
@@ -3014,57 +2995,69 @@ function scheduleSubjectStyle(v){const c=scheduleSubjectPalette(v);return `backg
 function paintScheduleSubject(input){if(!input)return;const c=scheduleSubjectPalette(input.value);input.style.backgroundColor=c.bg;input.style.borderColor=c.bd;input.style.color=c.fg}
 const schedulePendingKeys=new Set();
 let scheduleSaveRunning=false;
-let scheduleBootstrapPending=false;
-function saveScheduleLocal(){
- localStorage.setItem("jc_schedule",JSON.stringify(db.schedule||{}));
+const SCHEDULE_V2_COLLECTION="schedule_v2";
+const SCHEDULE_DEVICE_KEY="jc_schedule_device_id";
+const SCHEDULE_VERSIONS_KEY="jc_schedule_versions";
+function scheduleDeviceId(){let id=localStorage.getItem(SCHEDULE_DEVICE_KEY);if(!id){id=(crypto?.randomUUID?.()||('dev_'+Date.now()+'_'+Math.random().toString(36).slice(2,10)));localStorage.setItem(SCHEDULE_DEVICE_KEY,id)}return id}
+function scheduleVersions(){try{const x=JSON.parse(localStorage.getItem(SCHEDULE_VERSIONS_KEY)||'{}');return x&&typeof x==='object'?x:{}}catch{return {}}}
+function saveScheduleVersions(v){localStorage.setItem(SCHEDULE_VERSIONS_KEY,JSON.stringify(v||{}))}
+function saveScheduleLocal(){localStorage.setItem("jc_schedule",JSON.stringify(db.schedule||{}))}
+function scheduleStamp(v){const t=Date.parse(v||'');return Number.isFinite(t)?t:0}
+async function pullScheduleCloud(initial=false){
+ if(!cloudEnabled||cloudPullRunning||cloudPushRunning)return;
+ try{
+  const r=await cloudRequest('/rest/v1/jc_records?collection=in.('+SCHEDULE_V2_COLLECTION+',schedule)&select=collection,item_key,data,updated_at&order=updated_at.desc&limit=5000');
+  const rows=await r.json();
+  const latest=new Map();
+  for(const row of (rows||[])){
+   let key=String(row.item_key||'');let value=row.data;let stamp=scheduleStamp(row.updated_at);
+   if(row.collection===SCHEDULE_V2_COLLECTION){
+    key=String(row.data?.baseKey||'');value=row.data?.value;stamp=Math.max(stamp,scheduleStamp(row.data?.savedAt));
+   }
+   if(!key||value===undefined)continue;
+   const prev=latest.get(key);if(!prev||stamp>=prev.stamp)latest.set(key,{value,stamp});
+  }
+  const versions=scheduleVersions();let changed=false;
+  for(const [key,entry] of latest){
+   if(schedulePendingKeys.has(key))continue;
+   const localStamp=Number(versions[key]||0);
+   if(entry.stamp>localStamp){db.schedule[key]=entry.value;versions[key]=entry.stamp;changed=true}
+  }
+  saveScheduleVersions(versions);saveScheduleLocal();
+  // Se ainda não há uma versão v2 para uma grade local, ela continua disponível
+  // neste aparelho e será migrada célula a célula quando o professor editar.
+  if(changed&&S.user)render();
+ }catch(err){cloudLastError=String(err?.message||err);console.warn('Falha ao sincronizar horário escolar:',err)}
 }
 async function saveScheduleKeyCloud(key){
  if(!cloudEnabled||!key)return false;
- const sk=String(key);
- schedulePendingKeys.add(sk);
- saveScheduleLocal();
+ const sk=String(key);schedulePendingKeys.add(sk);saveScheduleLocal();
+ const stamp=Date.now();
+ const versions=scheduleVersions();versions[sk]=stamp;saveScheduleVersions(versions);
+ const itemKey=`${encodeURIComponent(sk)}|${stamp}|${scheduleDeviceId()}`;
+ const payload={baseKey:sk,value:db.schedule[sk],savedAt:new Date(stamp).toISOString(),deviceId:scheduleDeviceId()};
  try{
-  const data=db.schedule[key];
-  const stamp=new Date().toISOString();
-  // Grava imediatamente a célula alterada. O upsert continua compatível com a
-  // instalação atual, mas a confirmação sempre lê o registro mais recente.
-  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{
-   method:'POST',
-   headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},
-   body:JSON.stringify([{collection:'schedule',item_key:sk,data,updated_at:stamp}])
-  });
-  const check=await cloudRequest('/rest/v1/jc_records?collection=eq.schedule&item_key=eq.'+encodeURIComponent(sk)+'&select=item_key,data,updated_at&order=updated_at.desc&limit=1');
-  const rows=await check.json();
-  const row=Array.isArray(rows)?rows[0]:null;
-  if(!row||String(row?.item_key)!==sk||JSON.stringify(row.data)!==JSON.stringify(data))throw new Error('O horário não foi confirmado na nuvem.');
-  cloudShadow.schedule=cloudShadow.schedule||{};
-  cloudShadow.schedule[sk]=JSON.stringify(data);
-  schedulePendingKeys.delete(sk);
-  cloudLastError='';cloudLastPush=Date.now();
-  return true;
+  // V2 usa INSERT de uma nova versão em vez de UPDATE/UPSERT. Isso evita que
+  // uma política de UPDATE ou uma cópia antiga de outro aparelho sobrescreva
+  // a disciplina recém-salva.
+  await cloudRequest('/rest/v1/jc_records',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'return=minimal'},body:JSON.stringify([{collection:SCHEDULE_V2_COLLECTION,item_key:itemKey,data:payload,updated_at:new Date(stamp).toISOString()}])});
+  const check=await cloudRequest('/rest/v1/jc_records?collection=eq.'+SCHEDULE_V2_COLLECTION+'&data->>baseKey=eq.'+encodeURIComponent(sk)+'&select=item_key,data,updated_at&order=updated_at.desc&limit=1');
+  const rows=await check.json();const row=Array.isArray(rows)?rows[0]:null;
+  if(!row||String(row?.data?.baseKey)!==sk||JSON.stringify(row?.data?.value)!==JSON.stringify(db.schedule[sk]))throw new Error('A disciplina não foi confirmada na nuvem.');
+  schedulePendingKeys.delete(sk);cloudLastError='';cloudLastPush=Date.now();return true;
  }catch(err){
-  cloudLastError=String(err?.message||err);
-  console.warn('Falha ao salvar horário na nuvem:',err);
-  return false;
+  // A versão local continua protegida. O próximo ciclo tenta novamente.
+  schedulePendingKeys.add(sk);cloudLastError=String(err?.message||err);console.warn('Falha ao salvar disciplina na nuvem:',err);return false;
  }finally{updateCloudIndicators()}
 }
 async function setScheduleSubject(key,input){
-  const value=String(input.value||"").trim();
-  db.schedule[key]=value||"—";
-  paintScheduleSubject(input);
-  saveScheduleLocal();
-  const ok=await saveScheduleKeyCloud(key);
-  if(ok)toast("Disciplina salva na nuvem.");
-  else toast("Não foi possível confirmar na nuvem agora. A disciplina foi mantida e será reenviada automaticamente.");
+ const value=String(input.value||'').trim();db.schedule[key]=value||'—';paintScheduleSubject(input);saveScheduleLocal();
+ const ok=await saveScheduleKeyCloud(key);
+ toast(ok?'Disciplina salva no PC e no celular.':'Disciplina salva neste aparelho; aguardando confirmação na nuvem.');
 }
-function scheduleSubjectOptions(current){
-  const value=String(current||"—");
-  const base=["—",...SCHEDULE_SUBJECTS];
-  if(value!=="—"&&!base.includes(value))base.push(value);
-  return base.map(x=>`<option value="${e(x)}" ${x===value?'selected':''}>${e(x)}</option>`).join('');
-}
-function schedule(){const cls=S.user.role==="teacher"?S.cls:S.user.turma,days=["Segunda","Terça","Quarta","Quinta","Sexta"],defaults=[["08:00","10:00"],["10:00","12:00"],["13:00","15:00"],["15:00","17:00"],["17:00","19:00"],["19:00","21:00"]];page.innerHTML=`<a class="back" href="#" onclick="go('${S.user.role==="teacher"?"teacher":"student"}');return false">← Início</a><h1 class="center">Horário escolar</h1><p class="sub">${e(cls)}</p>${S.user.role==="teacher"?`<div class="tabs">${CLASSES.map(c=>`<button class="${c===S.cls?"active":""}" onclick="S.cls='${c}';schedule()">${c}</button>`).join("")}</div><div class="notice"><b>Horários editáveis:</b> mantenha ou altere início e fim livremente. Em cada aula, <b>selecione a disciplina</b> na lista. As disciplinas estão em ordem alfabética, a cor aparece automaticamente e será exibida também para o aluno.</div>`:""}<div class="panel tableWrap"><table class="scheduleTable"><thead><tr><th>Horário</th>${days.map(d=>`<th>${d}</th>`).join("")}</tr></thead><tbody>${defaults.map((df,i)=>{const sk=cls+"|slot|"+i,st=db.schedule[sk]||{start:df[0],end:df[1]};return `<tr><td>${S.user.role==="teacher"?`<div class="timeInputs"><input type="time" value="${st.start}" onchange="setSlot('${cls}',${i},'start',this.value)"><input type="time" value="${st.end}" onchange="setSlot('${cls}',${i},'end',this.value)"></div>`:`<b>${st.start}–${st.end}</b>`}</td>${days.map(d=>{const k=cls+"|"+d+"|"+i,v=db.schedule[k]||"—";return `<td>${S.user.role==="teacher"?`<select class="scheduleSubject" onchange="setScheduleSubject('${k}',this)" style="${scheduleSubjectStyle(v)}">${scheduleSubjectOptions(v)}</select>`:`<div class="scheduleSubjectCell" style="${scheduleSubjectStyle(v)}">${e(v)}</div>`}</td>`}).join("")}</tr>`}).join("")}</tbody></table></div>`;if(S.user.role==="teacher")setTimeout(()=>document.querySelectorAll('select.scheduleSubject').forEach(paintScheduleSubject),0)}
-async function setSlot(cls,i,k,v){const key=cls+"|slot|"+i,val={...(db.schedule[key]||{start:"08:00",end:"10:00"})};val[k]=v;db.schedule[key]=val;saveScheduleLocal();const ok=await saveScheduleKeyCloud(key);toast(ok?"Horário salvo na nuvem.":"Não foi possível confirmar na nuvem agora. O horário foi mantido e será reenviado automaticamente.")}
+function scheduleSubjectOptions(current){const value=String(current||'—');const base=['—',...SCHEDULE_SUBJECTS];if(value!=='—'&&!base.includes(value))base.push(value);return base.map(x=>`<option value="${e(x)}" ${x===value?'selected':''}>${e(x)}</option>`).join('')}
+function schedule(){const cls=S.user.role==='teacher'?S.cls:S.user.turma,days=['Segunda','Terça','Quarta','Quinta','Sexta'],defaults=[['08:00','10:00'],['10:00','12:00'],['13:00','15:00'],['15:00','17:00'],['17:00','19:00'],['19:00','21:00']];page.innerHTML=`<a class="back" href="#" onclick="go('${S.user.role==='teacher'?'teacher':'student'}');return false">← Início</a><h1 class="center">Horário escolar</h1><p class="sub">${e(cls)}</p>${S.user.role==='teacher'?`<div class="tabs">${CLASSES.map(c=>`<button class="${c===S.cls?'active':''}" onclick="S.cls='${c}';schedule()">${c}</button>`).join('')}</div><div class="notice"><b>Horários editáveis:</b> mantenha ou altere início e fim livremente. Em cada aula, <b>selecione a disciplina</b> na lista. As disciplinas estão em ordem alfabética, a cor aparece automaticamente e será exibida também para o aluno.</div>`:''}<div class="panel tableWrap"><table class="scheduleTable"><thead><tr><th>Horário</th>${days.map(d=>`<th>${d}</th>`).join('')}</tr></thead><tbody>${defaults.map((df,i)=>{const sk=cls+'|slot|'+i,st=db.schedule[sk]||{start:df[0],end:df[1]};return `<tr><td>${S.user.role==='teacher'?`<div class="timeInputs"><input type="time" value="${st.start}" onchange="setSlot('${cls}',${i},'start',this.value)"><input type="time" value="${st.end}" onchange="setSlot('${cls}',${i},'end',this.value)"></div>`:`<b>${st.start}–${st.end}</b>`}</td>${days.map(d=>{const k=cls+'|'+d+'|'+i,v=db.schedule[k]||'—';return `<td>${S.user.role==='teacher'?`<select class="scheduleSubject" onchange="setScheduleSubject('${k}',this)" style="${scheduleSubjectStyle(v)}">${scheduleSubjectOptions(v)}</select>`:`<div class="scheduleSubjectCell" style="${scheduleSubjectStyle(v)}">${e(v)}</div>`}</td>`}).join('')}</tr>`}).join('')}</tbody></table></div>`;if(S.user.role==='teacher')setTimeout(()=>document.querySelectorAll('select.scheduleSubject').forEach(paintScheduleSubject),0)}
+async function setSlot(cls,i,k,v){const key=cls+'|slot|'+i,val={...(db.schedule[key]||{start:'08:00',end:'10:00'})};val[k]=v;db.schedule[key]=val;saveScheduleLocal();const ok=await saveScheduleKeyCloud(key);toast(ok?'Horário salvo no PC e no celular.':'Horário salvo neste aparelho; aguardando confirmação na nuvem.')}
 function libraryTypeLabel(item){if(item.kind==='text')return 'Texto';const n=String(item.fileName||'').toLowerCase();if(/\.pdf$/.test(n))return 'PDF';if(/\.(jpg|jpeg|png|webp|gif)$/.test(n))return 'Imagem';if(/\.(doc|docx|odt|rtf)$/.test(n))return 'Documento';return 'Arquivo'}
 function libraryTargetClasses(){const v=byId('libClass')?.value||S.cls;return v==='Todas as Turmas'?['Todas as Turmas']:[v]}
 const LIBRARY_ICON_IMAGES={
