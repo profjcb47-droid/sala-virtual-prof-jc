@@ -561,7 +561,7 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
-const APP_BUILD="20260930-0918-schedule-cell-sync-v2";
+const APP_BUILD="20261004-0857-supabase-compat-sync";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
@@ -754,8 +754,12 @@ function supabaseHeaders(extra={}){return {"apikey":SUPABASE_KEY,"Authorization"
    Mantemos supabaseHeaders acima para Storage, sem alterar fotos/arquivos. */
 function supabaseRestHeaders(extra={}){
  const h={"apikey":SUPABASE_KEY,...extra};
+ /* Publishable keys use the apikey header. Legacy JWT keys also need Bearer. */
  if(String(SUPABASE_KEY||'').startsWith('eyJ'))h.Authorization='Bearer '+SUPABASE_KEY;
  return h;
+}
+function supabaseLegacyHeaders(extra={}){
+ return {"apikey":SUPABASE_KEY,"Authorization":"Bearer "+SUPABASE_KEY,...extra};
 }
 function stableKeyForItem(collection,item,index){
  if(collection==="students")return studentIdentityKey(item)||String(item.login||index);
@@ -780,17 +784,35 @@ function rebuildCollection(collection,rows){
 }
 async function cloudRequest(path,options={}){
  const method=String(options.method||'GET').toUpperCase();
- const fetchOptions={...options,cache:'no-store',headers:{...supabaseRestHeaders({'Cache-Control':'no-cache'}),...(options.headers||{})}};
- if(method==='GET')fetchOptions.cache='no-store';
- let r;
- try{r=await fetch(SUPABASE_URL+path,fetchOptions)}catch(err){
-  if(String(path).includes('jc_records')){visitDiag.lastCheck=Date.now();visitDiag.httpStatus=0;visitDiag.error='Falha de rede/CORS: '+String(err?.message||err)}
-  throw err
+ const baseHeaders={...(options.headers||{}),'Cache-Control':'no-cache'};
+ const attempts=[supabaseRestHeaders(baseHeaders)];
+ /* Compatibilidade com a versão que funcionava anteriormente: se o gateway
+    rejeitar a publishable key somente no header apikey, tenta novamente com
+    Authorization: Bearer. Nenhum dado é alterado durante essa tentativa. */
+ if(String(SUPABASE_KEY||'').startsWith('sb_publishable_'))attempts.push(supabaseLegacyHeaders(baseHeaders));
+ let lastError=null;
+ for(let i=0;i<attempts.length;i++){
+  const fetchOptions={...options,cache:'no-store',headers:attempts[i]};
+  if(method==='GET')fetchOptions.cache='no-store';
+  let r;
+  try{r=await fetch(SUPABASE_URL+path,fetchOptions)}catch(err){
+   lastError=err;
+   if(String(path).includes('jc_records')){visitDiag.lastCheck=Date.now();visitDiag.httpStatus=0;visitDiag.error='Falha de rede/CORS: '+String(err?.message||err)}
+   /* Erro de rede não é resolvido por trocar o header. */
+   break;
+  }
+  if(String(path).includes('jc_records')){visitDiag.lastCheck=Date.now();visitDiag.httpStatus=r.status}
+  if(r.ok){if(String(path).includes('jc_records'))visitDiag.error='';return r}
+  const text=await r.text().catch(()=>"");
+  lastError=new Error(`Supabase ${r.status}: ${text||r.statusText}`);
+  /* 401/403: tenta o formato de autenticação da versão anterior. Outros
+     erros indicam problema de tabela/política/projeto e não devem ser mascarados. */
+  if((r.status!==401&&r.status!==403)||i===attempts.length-1){
+   if(String(path).includes('jc_records'))visitDiag.error=lastError.message;
+   throw lastError;
+  }
  }
- if(String(path).includes('jc_records')){visitDiag.lastCheck=Date.now();visitDiag.httpStatus=r.status}
- if(!r.ok){const text=await r.text().catch(()=>"");const msg=`Supabase ${r.status}: ${text||r.statusText}`;if(String(path).includes('jc_records'))visitDiag.error=msg;throw new Error(msg)}
- if(String(path).includes('jc_records'))visitDiag.error='';
- return r
+ throw lastError||new Error('Não foi possível conectar ao Supabase.');
 }
 async function reconcileStudentsCloud(){
  if(!cloudEnabled||cloudPushRunning||cloudPullRunning)return;
@@ -936,7 +958,7 @@ async function cloudPull(initial=false){
     setTimeout(maybeNotifyCoordinator,0);
     setTimeout(maybeNotifyTeacher,0);
   }
- }catch(err){cloudLastError=err.message;console.warn('Sincronização Supabase indisponível:',err);if(initial)toast('Não foi possível conectar ao Supabase. Verifique a internet e a configuração.')}
+ }catch(err){cloudLastError=err.message;console.warn('Sincronização Supabase indisponível:',err)}
  finally{cloudPullRunning=false;updateCloudIndicators()}
 }
 async function cloudPushDiff(force=false){
