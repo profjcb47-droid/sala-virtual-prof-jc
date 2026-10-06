@@ -561,7 +561,7 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
-const APP_BUILD="20261004-0857-supabase-compat-sync";
+const APP_BUILD="20261005-2112-visit-sync-safe-merge";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
@@ -676,40 +676,94 @@ async function syncVisitsDirect(){
  if(!cloudEnabled||directVisitSyncRunning||visitPeriodResetRunning||!S.user)return;
  directVisitSyncRunning=true;
  try{
-  // 1) Lê primeiro a nuvem. Isso é essencial para receber exclusões antes de
-  // publicar o cache local; caso contrário outro aparelho poderia sobrescrever
-  // uma lápide com a cópia antiga do visto.
+  /* VISTOS: sincronização aditiva e não destrutiva.
+     A nuvem e o aparelho são unidos pelo ID do visto. Um registro local
+     pendente nunca é substituído por uma cópia remota mais antiga. */
   await fetchVisitDeletes();
   await fetchVisitResetCutoff();
+
   const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
   const rows=await r.json();
-  const cloudRows=Array.isArray(rows)?rows:[];
-  cloudRows.forEach(x=>{const v=x?.data;if(v?.deleted===true)markVisitDeleted(v.id??x.item_key)});
+  const remote=(Array.isArray(rows)?rows:[])
+    .map(x=>x?.data)
+    .filter(v=>v&&v.id!==undefined&&!v.deleted&&!isVisitDeleted(v)&&visitAfterReset(v));
 
-  // 2) Elimina imediatamente do cache deste aparelho tudo que já possui lápide
-  // compartilhada ou pertence a período encerrado.
-  let local=Array.isArray(db.visits)?db.visits.filter(v=>v&&v.id!==undefined&&visitAfterReset(v)&&!isVisitDeleted(v)):[];
-  if(JSON.stringify(local)!==JSON.stringify(db.visits||[])){
-   db.visits=local;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
-  }
+  const local=(Array.isArray(db.visits)?db.visits:[])
+    .filter(v=>v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v));
 
-  // 3) Só depois publica os vistos válidos. Nunca publica um ID marcado como excluído.
-  if(local.length){
-   const now=new Date().toISOString();
-   const payload=local.map(v=>({collection:'visits',item_key:String(v.id),data:v,updated_at:now}));
-   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(payload)});
-  }
-
-  const remote=cloudRows.map(x=>x?.data).filter(v=>v&&v.id!==undefined&&v.deleted!==true&&!isVisitDeleted(v)&&visitAfterReset(v));
+  /* mergeVisitLists escolhe a versão mais recente pelo updatedAt/createdAt.
+     Assim uma leitura criada neste aparelho não é perdida por uma resposta
+     remota que tenha começado antes dela. */
   const merged=mergeVisitLists(local,remote);
-  const changed=JSON.stringify(merged)!==JSON.stringify(db.visits||[]);
-  db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
-  if(changed){
-   if(S.user?.role==='student'){const vc=document.getElementById('student_visit_count');if(vc)vc.textContent=String(visitTotal(S.user));if(S.page==='studentVisits')studentVisits();}
-   else if(S.user?.role==='teacher'&&S.page==='visitsTeacher'){refreshVisitCounters();updateVisitRoster();const body=document.getElementById('visitRecentBody');if(body){const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v));body.innerHTML=visitRecentRows(todayRows);}}
+  const before=JSON.stringify(db.visits||[]);
+  db.visits=merged;
+  localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+
+  /* Publica somente o que a nuvem ainda não possui ou o que está pendente.
+     Não existe DELETE nesta rotina. */
+  const remoteIds=new Set(remote.map(v=>String(v.id)));
+  const payload=local
+    .filter(v=>!remoteIds.has(String(v.id))||visitPendingKeys.has(String(v.id)))
+    .map(v=>({
+      collection:'visits',
+      item_key:String(v.id),
+      data:v,
+      updated_at:new Date(Number(v.updatedAt||v.createdAt||Date.now())).toISOString()
+    }));
+
+  if(payload.length){
+   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},
+    body:JSON.stringify(payload)
+   });
+
+   /* Confirma somente as chaves enviadas. Se alguma não aparecer, ela continua
+      pendente e será tentada novamente no próximo ciclo. */
+   const ids=payload.map(x=>encodeURIComponent(x.item_key)).join(',');
+   const check=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&item_key=in.('+ids+')&select=item_key,data');
+   const confirmed=await check.json();
+   const confirmedIds=new Set((Array.isArray(confirmed)?confirmed:[])
+     .map(x=>String(x?.item_key))
+     .filter(Boolean));
+   payload.forEach(x=>{
+    if(confirmedIds.has(String(x.item_key)))clearVisitPending(x.item_key);
+   });
   }
- }catch(err){console.warn('Falha no canal direto de vistos:',err)}
- finally{directVisitSyncRunning=false}
+
+  if(before!==JSON.stringify(merged)){
+   if(S.user?.role==='student'){
+    const vc=document.getElementById('student_visit_count');
+    if(vc)vc.textContent=String(visitTotal(S.user));
+    if(S.page==='studentVisits')studentVisits();
+   }else if(S.user?.role==='teacher'&&S.page==='visitsTeacher'){
+    refreshVisitCounters();
+    updateVisitRoster();
+    const body=document.getElementById('visitRecentBody');
+    if(body){
+     const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v));
+     body.innerHTML=visitRecentRows(todayRows);
+    }
+   }
+  }
+  if(visitPendingKeys.size){cloudDirty=true;scheduleCloudPush();}
+  cloudLastError='';
+  cloudLastPush=Date.now();
+  visitDiag.lastWriteOk=visitPendingKeys.size===0;
+  visitDiag.lastCheck=Date.now();
+  visitDiag.error=visitPendingKeys.size?'Aguardando confirmação de alguns vistos.':'';
+  updateCloudIndicators();
+  updateVisitDiagnosticBox();
+ }catch(err){
+  cloudLastError=err.message;
+  visitDiag.lastWriteOk=false;
+  visitDiag.error=String(err?.message||err);
+  visitDiag.lastCheck=Date.now();
+  cloudDirty=true;
+  console.warn('Falha no canal direto de vistos:',err);
+  updateCloudIndicators();
+  updateVisitDiagnosticBox();
+ }finally{directVisitSyncRunning=false}
 }
 let visitLedgerPullRunning=false;
 async function pullVisitLedger(){
@@ -901,17 +955,24 @@ async function cloudPull(initial=false){
        pela ação explícita Excluir. */
     if(k==="visits"){
       if(visitPeriodResetRunning)continue;
-      const remote=rebuildCollection(k,grouped[k]),byId=new Map();
-      (remote||[]).forEach(v=>{if(v?.deleted===true){markVisitDeleted(v.id);return}if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v))byId.set(String(v.id),v)});
-      (db.visits||[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v)&&!byId.has(String(v.id)))byId.set(String(v.id),v)});
-      const merged=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
-      const before=JSON.stringify(db.visits||[]);db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+      const remote=rebuildCollection(k,grouped[k]);
+      const cleanRemote=(remote||[]).filter(v=>v&&v.id!==undefined&&!v.deleted&&!isVisitDeleted(v)&&visitAfterReset(v));
+      const cleanLocal=(Array.isArray(db.visits)?db.visits:[]).filter(v=>v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v));
+      const merged=mergeVisitLists(cleanLocal,cleanRemote);
+      const before=JSON.stringify(db.visits||[]);
+      db.visits=merged;
+      localStorage.setItem('jc_visits',JSON.stringify(db.visits));
       if(before!==JSON.stringify(merged))changed=true;
-      const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
+
+      /* Shadow representa somente a nuvem. Diferenças locais continuam marcadas
+         para publicação; nenhuma ausência local gera DELETE para visits. */
+      const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));
+      cloudShadow[k]=sm;
       const localNow=serializeMap(cloudEntries(k));
       if(Object.keys(localNow).some(key=>sm[key]!==localNow[key]))cloudDirty=true;
       continue;
     }
+
     /* O Supabase é a fonte oficial depois que as alterações locais foram
        confirmadas. */
     let rebuilt=rebuildCollection(k,grouped[k]);
@@ -1356,19 +1417,22 @@ async function pullStudentVisitsOnly(){
  if(!cloudEnabled||studentVisitPullRunning||visitPeriodResetRunning||S.user?.role!=="student")return;
  studentVisitPullRunning=true;
  try{
-  /* Reassocia a sessão ao cadastro canônico atual antes de contar. Assim uma sessão
-     antiga do aluno não fica presa a turma/chamada desatualizadas no navegador. */
   const canonical=canonicalStudentForVisits(S.user);
   if(canonical&&canonical!==S.user)S.user={...S.user,...canonical,role:'student'};
-  const remote=await fetchStudentVisitsFromCloud(S.user),byId=new Map();
-  /* Mantém os registros locais já conhecidos e acrescenta/atualiza os confirmados
-     pela nuvem. Nunca zera o aluno por causa de uma resposta temporariamente vazia. */
-  (Array.isArray(db.visits)?db.visits:[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v))byId.set(String(v.id),v)});
-  remote.forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
-  db.visits=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
+  const remote=await fetchStudentVisitsFromCloud(S.user);
+
+  /* Também aqui a sincronização é aditiva: uma resposta remota vazia/antiga
+     nunca zera os vistos que o aparelho já conhece. */
+  const merged=mergeVisitLists(
+    (Array.isArray(db.visits)?db.visits:[]).filter(v=>v&&!isVisitDeleted(v)&&visitAfterReset(v)),
+    remote
+  );
+  db.visits=merged;
   localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+
   const count=visitTotal(S.user);
-  const badge=byIdDom('student_visit_count');if(badge)badge.textContent=String(count);
+  const badge=byIdDom('student_visit_count');
+  if(badge)badge.textContent=String(count);
   if(S.page==='studentVisits')studentVisits();
  }catch(err){console.warn('Falha na atualização direta dos vistos do aluno:',err)}
  finally{studentVisitPullRunning=false}
