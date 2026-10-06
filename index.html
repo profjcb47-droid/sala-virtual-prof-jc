@@ -561,7 +561,7 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
-const APP_BUILD="20261005-2112-visit-sync-safe-merge";
+const APP_BUILD="20261005-2200-cloud-sync-audit-v1";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
@@ -676,94 +676,40 @@ async function syncVisitsDirect(){
  if(!cloudEnabled||directVisitSyncRunning||visitPeriodResetRunning||!S.user)return;
  directVisitSyncRunning=true;
  try{
-  /* VISTOS: sincronização aditiva e não destrutiva.
-     A nuvem e o aparelho são unidos pelo ID do visto. Um registro local
-     pendente nunca é substituído por uma cópia remota mais antiga. */
+  // 1) Lê primeiro a nuvem. Isso é essencial para receber exclusões antes de
+  // publicar o cache local; caso contrário outro aparelho poderia sobrescrever
+  // uma lápide com a cópia antiga do visto.
   await fetchVisitDeletes();
   await fetchVisitResetCutoff();
+  /* A coleção de vistos também pode ultrapassar o limite padrão do PostgREST.
+     Leia todas as páginas para que o computador e o celular usem o mesmo histórico. */
+  const cloudRows=await fetchCloudRecordsPaginated('visits');
+  cloudRows.forEach(x=>{const v=x?.data;if(v?.deleted===true)markVisitDeleted(v.id??x.item_key)});
 
-  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
-  const rows=await r.json();
-  const remote=(Array.isArray(rows)?rows:[])
-    .map(x=>x?.data)
-    .filter(v=>v&&v.id!==undefined&&!v.deleted&&!isVisitDeleted(v)&&visitAfterReset(v));
+  // 2) Elimina imediatamente do cache deste aparelho tudo que já possui lápide
+  // compartilhada ou pertence a período encerrado.
+  let local=Array.isArray(db.visits)?db.visits.filter(v=>v&&v.id!==undefined&&visitAfterReset(v)&&!isVisitDeleted(v)):[];
+  if(JSON.stringify(local)!==JSON.stringify(db.visits||[])){
+   db.visits=local;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+  }
 
-  const local=(Array.isArray(db.visits)?db.visits:[])
-    .filter(v=>v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v));
+  // 3) Só depois publica os vistos válidos. Nunca publica um ID marcado como excluído.
+  if(local.length){
+   const now=new Date().toISOString();
+   const payload=local.map(v=>({collection:'visits',item_key:String(v.id),data:v,updated_at:now}));
+   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(payload)});
+  }
 
-  /* mergeVisitLists escolhe a versão mais recente pelo updatedAt/createdAt.
-     Assim uma leitura criada neste aparelho não é perdida por uma resposta
-     remota que tenha começado antes dela. */
+  const remote=cloudRows.map(x=>x?.data).filter(v=>v&&v.id!==undefined&&v.deleted!==true&&!isVisitDeleted(v)&&visitAfterReset(v));
   const merged=mergeVisitLists(local,remote);
-  const before=JSON.stringify(db.visits||[]);
-  db.visits=merged;
-  localStorage.setItem('jc_visits',JSON.stringify(db.visits));
-
-  /* Publica somente o que a nuvem ainda não possui ou o que está pendente.
-     Não existe DELETE nesta rotina. */
-  const remoteIds=new Set(remote.map(v=>String(v.id)));
-  const payload=local
-    .filter(v=>!remoteIds.has(String(v.id))||visitPendingKeys.has(String(v.id)))
-    .map(v=>({
-      collection:'visits',
-      item_key:String(v.id),
-      data:v,
-      updated_at:new Date(Number(v.updatedAt||v.createdAt||Date.now())).toISOString()
-    }));
-
-  if(payload.length){
-   await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},
-    body:JSON.stringify(payload)
-   });
-
-   /* Confirma somente as chaves enviadas. Se alguma não aparecer, ela continua
-      pendente e será tentada novamente no próximo ciclo. */
-   const ids=payload.map(x=>encodeURIComponent(x.item_key)).join(',');
-   const check=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&item_key=in.('+ids+')&select=item_key,data');
-   const confirmed=await check.json();
-   const confirmedIds=new Set((Array.isArray(confirmed)?confirmed:[])
-     .map(x=>String(x?.item_key))
-     .filter(Boolean));
-   payload.forEach(x=>{
-    if(confirmedIds.has(String(x.item_key)))clearVisitPending(x.item_key);
-   });
+  const changed=JSON.stringify(merged)!==JSON.stringify(db.visits||[]);
+  db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+  if(changed){
+   if(S.user?.role==='student'){const vc=document.getElementById('student_visit_count');if(vc)vc.textContent=String(visitTotal(S.user));if(S.page==='studentVisits')studentVisits();}
+   else if(S.user?.role==='teacher'&&S.page==='visitsTeacher'){refreshVisitCounters();updateVisitRoster();const body=document.getElementById('visitRecentBody');if(body){const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v));body.innerHTML=visitRecentRows(todayRows);}}
   }
-
-  if(before!==JSON.stringify(merged)){
-   if(S.user?.role==='student'){
-    const vc=document.getElementById('student_visit_count');
-    if(vc)vc.textContent=String(visitTotal(S.user));
-    if(S.page==='studentVisits')studentVisits();
-   }else if(S.user?.role==='teacher'&&S.page==='visitsTeacher'){
-    refreshVisitCounters();
-    updateVisitRoster();
-    const body=document.getElementById('visitRecentBody');
-    if(body){
-     const today=visitDateKey(),todayRows=(db.visits||[]).filter(v=>v.date===today&&visitInCurrentPeriod(v));
-     body.innerHTML=visitRecentRows(todayRows);
-    }
-   }
-  }
-  if(visitPendingKeys.size){cloudDirty=true;scheduleCloudPush();}
-  cloudLastError='';
-  cloudLastPush=Date.now();
-  visitDiag.lastWriteOk=visitPendingKeys.size===0;
-  visitDiag.lastCheck=Date.now();
-  visitDiag.error=visitPendingKeys.size?'Aguardando confirmação de alguns vistos.':'';
-  updateCloudIndicators();
-  updateVisitDiagnosticBox();
- }catch(err){
-  cloudLastError=err.message;
-  visitDiag.lastWriteOk=false;
-  visitDiag.error=String(err?.message||err);
-  visitDiag.lastCheck=Date.now();
-  cloudDirty=true;
-  console.warn('Falha no canal direto de vistos:',err);
-  updateCloudIndicators();
-  updateVisitDiagnosticBox();
- }finally{directVisitSyncRunning=false}
+ }catch(err){console.warn('Falha no canal direto de vistos:',err)}
+ finally{directVisitSyncRunning=false}
 }
 let visitLedgerPullRunning=false;
 async function pullVisitLedger(){
@@ -909,14 +855,49 @@ async function reconcileStudentsCloud(){
   if(before!==JSON.stringify(canonical)&&S.user&&!preserveActiveInteraction())render();
  }catch(err){console.warn('Falha na reconciliação segura dos alunos:',err)}
 }
+async function fetchCloudRecordsPaginated(collection){
+ const all=[];
+ const pageSize=500;
+ let offset=0;
+ while(true){
+  const path='/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&select=collection,item_key,data,updated_at&order=item_key.asc&limit='+pageSize+'&offset='+offset;
+  const r=await cloudRequest(path);
+  const rows=await r.json();
+  if(!Array.isArray(rows)||!rows.length)break;
+  all.push(...rows);
+  if(rows.length<pageSize)break;
+  offset+=rows.length;
+  if(offset>50000)throw new Error('A coleção '+collection+' ultrapassou o limite seguro de leitura (50.000 registros).');
+ }
+ return all;
+}
+async function fetchAllCloudRecords(){
+ const grouped={};CLOUD_COLLECTIONS.forEach(k=>grouped[k]=[]);
+ const pageSize=500;
+ let offset=0;
+ while(true){
+  const path='/rest/v1/jc_records?select=collection,item_key,data,updated_at&order=collection.asc,item_key.asc&limit='+pageSize+'&offset='+offset;
+  const r=await cloudRequest(path);
+  const rows=await r.json();
+  if(!Array.isArray(rows)||!rows.length)break;
+  rows.forEach(row=>{if(grouped[row.collection])grouped[row.collection].push(row)});
+  if(rows.length<pageSize)break;
+  offset+=rows.length;
+  if(offset>50000)throw new Error('A base na nuvem ultrapassou o limite seguro de leitura (50.000 registros).');
+ }
+ return grouped;
+}
 async function cloudPull(initial=false){
  if(studentExcelImportInProgress&&!initial)return;
  if(!cloudEnabled||cloudPullRunning||cloudPushRunning)return;
  if(cloudDirty){await cloudPushDiff();if(cloudDirty)return}
  cloudPullRunning=true;
  try{
-  const r=await cloudRequest('/rest/v1/jc_records?select=collection,item_key,data,updated_at&order=collection.asc,item_key.asc');
-  const rows=await r.json();
+  /* A leitura antiga fazia UMA consulta global ao jc_records. O PostgREST pode
+     limitar essa resposta (por exemplo, 1.000 linhas), deixando coleções inteiras
+     fora da leitura. Agora cada coleção é lida separadamente e paginada. */
+  const grouped=await fetchAllCloudRecords();
+  const rows=Object.values(grouped).flat();
   await fetchVisitDeletes();
   await fetchVisitResetCutoff();
   /* Se o usuário alterou algum dado enquanto esta leitura da nuvem estava
@@ -928,8 +909,6 @@ async function cloudPull(initial=false){
     scheduleCloudPush();
     return;
   }
-  const grouped={};CLOUD_COLLECTIONS.forEach(k=>grouped[k]=[]);
-  rows.forEach(row=>{if(grouped[row.collection])grouped[row.collection].push(row)});
   if(initial&&rows.length===0){
     CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]={});
     cloudReady=true;cloudDirty=true;await cloudPushDiff(true);return;
@@ -955,24 +934,17 @@ async function cloudPull(initial=false){
        pela ação explícita Excluir. */
     if(k==="visits"){
       if(visitPeriodResetRunning)continue;
-      const remote=rebuildCollection(k,grouped[k]);
-      const cleanRemote=(remote||[]).filter(v=>v&&v.id!==undefined&&!v.deleted&&!isVisitDeleted(v)&&visitAfterReset(v));
-      const cleanLocal=(Array.isArray(db.visits)?db.visits:[]).filter(v=>v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v));
-      const merged=mergeVisitLists(cleanLocal,cleanRemote);
-      const before=JSON.stringify(db.visits||[]);
-      db.visits=merged;
-      localStorage.setItem('jc_visits',JSON.stringify(db.visits));
+      const remote=rebuildCollection(k,grouped[k]),byId=new Map();
+      (remote||[]).forEach(v=>{if(v?.deleted===true){markVisitDeleted(v.id);return}if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v))byId.set(String(v.id),v)});
+      (db.visits||[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v)&&!byId.has(String(v.id)))byId.set(String(v.id),v)});
+      const merged=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
+      const before=JSON.stringify(db.visits||[]);db.visits=merged;localStorage.setItem('jc_visits',JSON.stringify(db.visits));
       if(before!==JSON.stringify(merged))changed=true;
-
-      /* Shadow representa somente a nuvem. Diferenças locais continuam marcadas
-         para publicação; nenhuma ausência local gera DELETE para visits. */
-      const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));
-      cloudShadow[k]=sm;
+      const sm={};grouped[k].forEach(row=>sm[row.item_key]=JSON.stringify(row.data));cloudShadow[k]=sm;
       const localNow=serializeMap(cloudEntries(k));
       if(Object.keys(localNow).some(key=>sm[key]!==localNow[key]))cloudDirty=true;
       continue;
     }
-
     /* O Supabase é a fonte oficial depois que as alterações locais foram
        confirmadas. */
     let rebuilt=rebuildCollection(k,grouped[k]);
@@ -1025,49 +997,86 @@ async function cloudPull(initial=false){
 async function cloudPushDiff(force=false){
  if(!cloudEnabled||cloudPushRunning||(!cloudDirty&&!force))return;
  cloudPushRunning=true;clearTimeout(cloudPushTimer);cloudPushTimer=null;
+ let hadError=false;
  try{
   await fetchVisitDeletes();
   await fetchVisitResetCutoff();
-  const upserts=[];const deletes=[];const now=new Date().toISOString();
+  const now=new Date().toISOString();
+  const postUpserts=async(list)=>{
+   if(!list.length)return;
+   /* Não mandamos toda a base em uma única requisição. Um aviso em destaque
+      pode conter uma imagem grande em base64; uma requisição grande demais
+      fazia TODO o lote falhar, inclusive alunos, avisos e vistos. */
+   const maxItems=20,maxBytes=450000;
+   let batch=[],bytes=2;
+   const flush=async()=>{
+    if(!batch.length)return;
+    await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(batch)});
+    batch=[];bytes=2;
+   };
+   for(const item of list){
+    const size=JSON.stringify(item).length;
+    if(batch.length&&(batch.length>=maxItems||bytes+size>maxBytes))await flush();
+    batch.push(item);bytes+=size;
+    if(size>maxBytes)await flush();
+   }
+   await flush();
+  };
   for(const k of CLOUD_COLLECTIONS){
-    const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
-    current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
+   const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
+   const upserts=[];
+   current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
+   try{
+    await postUpserts(upserts);
     if(k==="students"){
-      /* Para alunos, só apagamos chaves marcadas por uma ação explícita de exclusão.
-         Nunca apagamos por diferença entre listas, pois uma lista local pode estar
-         incompleta durante sincronização/importação. */
-      studentDeleteKeys.forEach(key=>deletes.push([k,key]));
-      // Chaves antigas/duplicadas não são apagadas automaticamente. A interface as consolida pela identidade Turma + Nº; exclusão física só ocorre por ação explícita do professor.
-    }else if(k==="visits"){
-      if(visitPeriodResetRunning)continue;
-      /* Vistos são históricos aditivos. Nunca apagar da nuvem só porque um aparelho
-         ainda não possui uma leitura feita em outro dispositivo. */
-    }else{
-      Object.keys(shadow).forEach(key=>{if(!current.has(key))deletes.push([k,key])});
+      /* Para alunos, somente exclusões explicitamente marcadas pelo professor
+         podem apagar um cadastro na nuvem. */
+      for(const key of studentDeleteKeys){
+       await cloudRequest('/rest/v1/jc_records?collection=eq.students&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+      }
+    }else if(k!=="visits"&&!studentExcelImportInProgress){
+      /* Mantém o comportamento anterior para exclusões explícitas das demais
+         coleções, mas uma falha em uma coleção não bloqueia as outras. */
+      for(const key of Object.keys(shadow)){
+       if(!current.has(key)){
+        await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(k)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+       }
+      }
     }
+    cloudShadow[k]=serializeMap(cloudEntries(k));
+   }catch(err){
+    hadError=true;
+    cloudLastError=`${k}: ${err.message}`;
+    console.warn('Falha ao sincronizar a coleção '+k,err);
+   }
   }
-  if(upserts.length){
-    await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(upserts)});
+  /* Só consideramos a fila limpa quando TODAS as coleções alteradas foram
+     confirmadas. O que falhou permanece pendente para a próxima tentativa. */
+  if(!hadError){
+   localStorage.removeItem("jc_students_pending_sync");
+   localStorage.removeItem("jc_cloud_pending_sync");
   }
-  for(const [collection,key] of deletes){
-    await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
-  }
-  CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
-  localStorage.removeItem("jc_students_pending_sync");
-  if(studentDeleteKeys.size){studentDeleteKeys.clear();saveStudentDeleteKeys()}
+  if(studentDeleteKeys.size&&!hadError){studentDeleteKeys.clear();saveStudentDeleteKeys()}
   studentLegacyCloudKeys.clear();
-  /* Não libera vistos pendentes apenas porque um envio em lote terminou.
-     pushVisitImmediately libera cada visto após confirmação; os demais ficam
-     protegidos e serão reenviados nas próximas sincronizações. */
-  cloudDirty=false;cloudReady=true;cloudLastError="";cloudLastPush=Date.now();
- }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
- finally{cloudPushRunning=false;updateCloudIndicators();if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800)}
+  cloudDirty=hadError;
+  if(!hadError){cloudReady=true;cloudLastError="";cloudLastPush=Date.now()}
+ }catch(err){
+  hadError=true;cloudLastError=err.message;cloudDirty=true;console.warn('Falha ao enviar alterações ao Supabase:',err);
+ }finally{
+  cloudPushRunning=false;updateCloudIndicators();
+  if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800);
+ }
 }
 function scheduleCloudPush(){cloudDirty=true;updateCloudIndicators();clearTimeout(cloudPushTimer);cloudPushTimer=setTimeout(async()=>{await cloudPushDiff();if(!cloudDirty)await cloudPull(false)},120)}
 function persist(){
  db.students=collapseStudentDuplicates(db.students||[]);
  const nextStudents=JSON.stringify(db.students||[]),prevStudents=localStorage.getItem("jc_students");
  if(prevStudents!==nextStudents)localStorage.setItem("jc_students_pending_sync","1");
+ /* O sinal de pendência precisa sobreviver a fechar/reabrir o navegador.
+    Antes ele existia somente em memória (cloudDirty); se a rede falhasse e o
+    aparelho fosse fechado, na próxima abertura a nuvem antiga podia voltar por
+    cima da alteração local. */
+ localStorage.setItem("jc_cloud_pending_sync","1");
  Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));
  scheduleCloudPush();
 }
@@ -1078,7 +1087,11 @@ async function syncNow(showToast=false){
 function cloudStatusText(){if(cloudLastError)return '☁ Sem sincronização';if(cloudDirty||cloudPushRunning)return '☁ Enviando...';if(cloudReady)return '☁ Sincronizado';return '☁ Conectando...'}
 function updateCloudIndicators(){document.querySelectorAll('[data-cloud-status],.cloudStatusBtn').forEach(el=>{el.style.display='none';el.setAttribute('aria-hidden','true')})}
 async function initCloud(){
+ /* Se este aparelho fechou enquanto uma alteração aguardava a nuvem, publique
+    primeiro a fila local. Só depois aceite dados remotos como atualização. */
+ if(localStorage.getItem("jc_cloud_pending_sync")==="1")cloudDirty=true;
  await reconcileStudentsCloud();
+ if(cloudDirty){await cloudPushDiff();}
  await cloudPull(true);
  await pullScheduleCloud(true);
  setInterval(()=>{syncNow(false);pullScheduleCloud(false)},1500);
@@ -1401,38 +1414,29 @@ async function fetchStudentVisitsFromCloud(st){
  await fetchVisitDeletes();
  await fetchVisitResetCutoff();
  const addRows=rows=>{(Array.isArray(rows)?rows:[]).forEach(row=>{const v=row?.data;if(v?.deleted===true){markVisitDeleted(v.id??row?.item_key);found.delete(String(v.id??row?.item_key));return}if(v&&v.id!==undefined&&!isVisitDeleted(v))found.set(String(v.id),v)})};
- const login=String(st.login||'').trim();
- if(login){
-  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc');
-  addRows(await r.json());
- }
- /* Alguns vistos antigos podem não ter login, mas possuem turma e chamada. Como a
-    quantidade de vistos é pequena, esta leitura complementar continua leve. */
- const r2=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
- const all=await r2.json();
- addRows((Array.isArray(all)?all:[]).filter(row=>visitMatchesStudent(row?.data,st)));
+ /* Fazemos uma leitura paginada da coleção inteira. Isso cobre também vistos
+    antigos sem login e evita que o limite de 1.000 linhas esconda registros. */
+ const all=await fetchCloudRecordsPaginated('visits');
+ addRows(all.filter(row=>visitMatchesStudent(row?.data,st)));
  return [...found.values()];
 }
 async function pullStudentVisitsOnly(){
  if(!cloudEnabled||studentVisitPullRunning||visitPeriodResetRunning||S.user?.role!=="student")return;
  studentVisitPullRunning=true;
  try{
+  /* Reassocia a sessão ao cadastro canônico atual antes de contar. Assim uma sessão
+     antiga do aluno não fica presa a turma/chamada desatualizadas no navegador. */
   const canonical=canonicalStudentForVisits(S.user);
   if(canonical&&canonical!==S.user)S.user={...S.user,...canonical,role:'student'};
-  const remote=await fetchStudentVisitsFromCloud(S.user);
-
-  /* Também aqui a sincronização é aditiva: uma resposta remota vazia/antiga
-     nunca zera os vistos que o aparelho já conhece. */
-  const merged=mergeVisitLists(
-    (Array.isArray(db.visits)?db.visits:[]).filter(v=>v&&!isVisitDeleted(v)&&visitAfterReset(v)),
-    remote
-  );
-  db.visits=merged;
+  const remote=await fetchStudentVisitsFromCloud(S.user),byId=new Map();
+  /* Mantém os registros locais já conhecidos e acrescenta/atualiza os confirmados
+     pela nuvem. Nunca zera o aluno por causa de uma resposta temporariamente vazia. */
+  (Array.isArray(db.visits)?db.visits:[]).forEach(v=>{if(v&&v.id!==undefined&&!isVisitDeleted(v)&&visitAfterReset(v))byId.set(String(v.id),v)});
+  remote.forEach(v=>{if(v&&v.id!==undefined)byId.set(String(v.id),v)});
+  db.visits=[...byId.values()].sort((a,b)=>Number(b.createdAt||0)-Number(a.createdAt||0));
   localStorage.setItem('jc_visits',JSON.stringify(db.visits));
-
   const count=visitTotal(S.user);
-  const badge=byIdDom('student_visit_count');
-  if(badge)badge.textContent=String(count);
+  const badge=byIdDom('student_visit_count');if(badge)badge.textContent=String(count);
   if(S.page==='studentVisits')studentVisits();
  }catch(err){console.warn('Falha na atualização direta dos vistos do aluno:',err)}
  finally{studentVisitPullRunning=false}
@@ -1623,34 +1627,30 @@ async function waitVisitSyncIdle(){
 async function closeVisitsInCloud(snapshot,archive,newPeriod){
  if(!cloudEnabled)throw new Error("Sem conexão com a nuvem.");
  const now=new Date().toISOString();
- /*
-  * Fechamento de teste: usa SOMENTE a coleção já existente `visits` para a
-  * exclusão remota. As coleções auxiliares visitControl/visitDeletes/visitLedger
-  * não participam desta operação, porque podem não existir nas políticas/RLS do
-  * projeto e estavam fazendo o botão falhar antes de chegar à exclusão.
-  * Nenhuma outra coleção é tocada.
-  */
- const before=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data&order=updated_at.desc');
- const beforeRows=await before.json();
- const beforeIds=new Set((Array.isArray(beforeRows)?beforeRows:[]).map(r=>String(r?.item_key||'')).filter(Boolean));
-
- /* Apaga EXCLUSIVAMENTE os registros da coleção `visits`. */
- await cloudRequest('/rest/v1/jc_records?collection=eq.visits',{method:'DELETE',headers:{'Prefer':'return=minimal'}});
-
- /* Confirma na própria nuvem que os vistos realmente desapareceram. */
- const verify=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key&limit=1');
- const remaining=await verify.json();
- if(Array.isArray(remaining)&&remaining.length){
-   throw new Error(`A nuvem não confirmou a exclusão dos vistos (${remaining.length} registro(s) ainda visíveis).`);
+ // 1) arquiva uma cópia antes de remover os vistos ativos.
+ await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visitArchives',item_key:String(archive.id),data:archive,updated_at:now}])});
+ // 2) publica PRIMEIRO um marco de fechamento compartilhado. Este é o mecanismo
+ // definitivo: mesmo que o Supabase não permita DELETE pela chave pública, nenhum
+ // aparelho poderá ressuscitar registros anteriores a este fechamento.
+ const cutoff=Date.now();
+ await saveVisitResetCutoff(cutoff,newPeriod);
+ // Registra exclusões permanentes dos IDs encerrados. Isso impede qualquer aparelho
+ // antigo/offline de republicar um visto do período fechado.
+ if(Array.isArray(snapshot)&&snapshot.length){
+  const dels=snapshot.filter(v=>v&&v.id!==undefined).map(v=>({collection:VISIT_DELETE_COLLECTION,item_key:String(v.id),data:{visitId:String(v.id),deletedAt:cutoff,reason:'period-close'},updated_at:new Date(cutoff).toISOString()}));
+  if(dels.length)await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(dels)});
+  dels.forEach(d=>markVisitDeleted(d.item_key));
  }
-
- /* Atualiza somente o período dos vistos. */
+ // 3) tenta a limpeza física. Se a política RLS não permitir DELETE, os registros
+ // antigos podem continuar armazenados, mas ficam inativos pelo marco acima.
+ try{await cloudRequest('/rest/v1/jc_records?collection=eq.visits',{method:'DELETE',headers:{'Prefer':'return=minimal'}})}catch(err){console.warn('DELETE físico dos vistos não permitido; usando fechamento lógico seguro.',err)}
+ // 4) zera também o livro redundante, para ele nunca ressuscitar registros encerrados.
+ await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_LEDGER_COLLECTION,item_key:VISIT_LEDGER_KEY,data:{visits:[],updatedAt:Date.now()},updated_at:now}])});
+ // 4) publica o novo período imediatamente.
  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([
   {collection:'visitPeriod',item_key:'year',data:newPeriod.year,updated_at:now},
   {collection:'visitPeriod',item_key:'bimester',data:newPeriod.bimester,updated_at:now}
  ])});
-
- return {deleted:beforeIds.size};
 }
 async function endVisitBimester(){
  const p=currentVisitPeriod(),count=(db.visits||[]).length;
@@ -1667,10 +1667,7 @@ async function endVisitBimester(){
   const snapshot=mergeVisitLists(db.visits||[],remote);
   const archive={id:Date.now()+Math.floor(Math.random()*1000),kind:'bimester',label:`${p.bimester}º Bimestre de ${p.year}`,year:p.year,bimester:p.bimester,total:snapshot.length,endedAt:Date.now(),visits:snapshot.map(v=>({...v}))};
   const next={year:p.year,bimester:p.bimester<4?p.bimester+1:4};
-  const closeResult=await closeVisitsInCloud(snapshot,archive,next);
-  /* Fechamento físico confirmado na nuvem: limpa apenas o estado local dos vistos. */
-  visitDeletedKeys.clear();saveVisitDeletedKeys();
-  visitResetCutoff=0;localStorage.removeItem('jc_visit_reset_cutoff');
+  await closeVisitsInCloud(snapshot,archive,next);
   if(!Array.isArray(db.visitArchives))db.visitArchives=[];
   db.visitArchives.push(archive);db.visits=[];db.visitPeriod=next;
   visitPendingKeys.clear();saveVisitPendingKeys();
@@ -1679,7 +1676,7 @@ async function endVisitBimester(){
   localStorage.setItem('jc_visit_bimester_selected',String(next.bimester));
   cloudShadow.visits={};cloudShadow.visitArchives=serializeMap(cloudEntries('visitArchives'));cloudShadow.visitPeriod=serializeMap(cloudEntries('visitPeriod'));
   cloudDirty=false;cloudLastError='';
-  toast(`Bimestre encerrado na nuvem. ${Number(closeResult?.deleted||0)} visto(s) apagado(s). A nova contagem começou em 0.`);
+  toast(`Bimestre encerrado e sincronizado. A nova contagem começou em 0.`);
  }catch(err){
   cloudLastError=String(err?.message||err);toast('Não foi possível encerrar o bimestre na nuvem. Nenhum visto foi apagado neste aparelho.');
  }finally{visitPeriodResetRunning=false;visitsTeacher();setTimeout(()=>syncVisitsDirect(),300)}
@@ -3086,7 +3083,10 @@ function scheduleSubjectPalette(v){
 const SCHEDULE_SUBJECTS=["Artes","Ciências","Eletiva","E.O. Mat.","E.O. Port.","Ed. Física","Geografia","História","Inglês","Matemática","Português"];
 function scheduleSubjectStyle(v){const c=scheduleSubjectPalette(v);return `background:${c.bg};border-color:${c.bd};color:${c.fg}`}
 function paintScheduleSubject(input){if(!input)return;const c=scheduleSubjectPalette(input.value);input.style.backgroundColor=c.bg;input.style.borderColor=c.bd;input.style.color=c.fg}
-const schedulePendingKeys=new Set();
+const SCHEDULE_PENDING_KEY="jc_schedule_pending_keys";
+let schedulePendingKeys=new Set();
+try{const raw=JSON.parse(localStorage.getItem(SCHEDULE_PENDING_KEY)||'[]');if(Array.isArray(raw))raw.forEach(k=>schedulePendingKeys.add(String(k)))}catch{}
+function saveSchedulePendingKeys(){localStorage.setItem(SCHEDULE_PENDING_KEY,JSON.stringify([...schedulePendingKeys]))}
 let scheduleSaveRunning=false;
 const SCHEDULE_V2_COLLECTION="schedule_v2";
 const SCHEDULE_DEVICE_KEY="jc_schedule_device_id";
@@ -3124,7 +3124,7 @@ async function pullScheduleCloud(initial=false){
 }
 async function saveScheduleKeyCloud(key){
  if(!cloudEnabled||!key)return false;
- const sk=String(key);schedulePendingKeys.add(sk);saveScheduleLocal();
+ const sk=String(key);schedulePendingKeys.add(sk);saveSchedulePendingKeys();saveScheduleLocal();
  const stamp=Date.now();
  const versions=scheduleVersions();versions[sk]=stamp;saveScheduleVersions(versions);
  const itemKey=`${encodeURIComponent(sk)}|${stamp}|${scheduleDeviceId()}`;
@@ -3137,7 +3137,7 @@ async function saveScheduleKeyCloud(key){
   const check=await cloudRequest('/rest/v1/jc_records?collection=eq.'+SCHEDULE_V2_COLLECTION+'&data->>baseKey=eq.'+encodeURIComponent(sk)+'&select=item_key,data,updated_at&order=updated_at.desc&limit=1');
   const rows=await check.json();const row=Array.isArray(rows)?rows[0]:null;
   if(!row||String(row?.data?.baseKey)!==sk||JSON.stringify(row?.data?.value)!==JSON.stringify(db.schedule[sk]))throw new Error('A disciplina não foi confirmada na nuvem.');
-  schedulePendingKeys.delete(sk);cloudLastError='';cloudLastPush=Date.now();return true;
+  schedulePendingKeys.delete(sk);saveSchedulePendingKeys();cloudLastError='';cloudLastPush=Date.now();return true;
  }catch(err){
   // A versão local continua protegida. O próximo ciclo tenta novamente.
   schedulePendingKeys.add(sk);cloudLastError=String(err?.message||err);console.warn('Falha ao salvar disciplina na nuvem:',err);return false;
