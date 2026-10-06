@@ -561,7 +561,7 @@ window.addEventListener("touchmove",ev=>{if(!ev.touches||ev.touches.length!==1)r
 /* ===== Sincronização online Supabase =====
    A chave abaixo é a publishable key (pública) fornecida para o projeto.
    O arquivo supabase_setup.sql, incluído no ZIP, precisa ser executado uma única vez no SQL Editor. */
-const APP_BUILD="20261005-2200-cloud-sync-audit-v1";
+const APP_BUILD="20261004-0857-supabase-compat-sync";
 const SUPABASE_URL="https://xmaprsrfmcihlycvkhky.supabase.co";
 const SUPABASE_KEY="sb_publishable_X-XBASTNai5Z6idhfbwTmA_14pn7MXy";
 const CLOUD_COLLECTIONS=["classes","students","activities","contents","messages","submissions","notes","accesses","activityViews","contentViews","activityResponses","library","libraryViews","libraryLinks","announcements","announcementReads","visits","visitArchives","visitPeriod","reports","occurrences","videos","highlights","highlightReads","coordNotificationReads","teacherNotificationReads"];
@@ -681,9 +681,9 @@ async function syncVisitsDirect(){
   // uma lápide com a cópia antiga do visto.
   await fetchVisitDeletes();
   await fetchVisitResetCutoff();
-  /* A coleção de vistos também pode ultrapassar o limite padrão do PostgREST.
-     Leia todas as páginas para que o computador e o celular usem o mesmo histórico. */
-  const cloudRows=await fetchCloudRecordsPaginated('visits');
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
+  const rows=await r.json();
+  const cloudRows=Array.isArray(rows)?rows:[];
   cloudRows.forEach(x=>{const v=x?.data;if(v?.deleted===true)markVisitDeleted(v.id??x.item_key)});
 
   // 2) Elimina imediatamente do cache deste aparelho tudo que já possui lápide
@@ -855,49 +855,14 @@ async function reconcileStudentsCloud(){
   if(before!==JSON.stringify(canonical)&&S.user&&!preserveActiveInteraction())render();
  }catch(err){console.warn('Falha na reconciliação segura dos alunos:',err)}
 }
-async function fetchCloudRecordsPaginated(collection){
- const all=[];
- const pageSize=500;
- let offset=0;
- while(true){
-  const path='/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&select=collection,item_key,data,updated_at&order=item_key.asc&limit='+pageSize+'&offset='+offset;
-  const r=await cloudRequest(path);
-  const rows=await r.json();
-  if(!Array.isArray(rows)||!rows.length)break;
-  all.push(...rows);
-  if(rows.length<pageSize)break;
-  offset+=rows.length;
-  if(offset>50000)throw new Error('A coleção '+collection+' ultrapassou o limite seguro de leitura (50.000 registros).');
- }
- return all;
-}
-async function fetchAllCloudRecords(){
- const grouped={};CLOUD_COLLECTIONS.forEach(k=>grouped[k]=[]);
- const pageSize=500;
- let offset=0;
- while(true){
-  const path='/rest/v1/jc_records?select=collection,item_key,data,updated_at&order=collection.asc,item_key.asc&limit='+pageSize+'&offset='+offset;
-  const r=await cloudRequest(path);
-  const rows=await r.json();
-  if(!Array.isArray(rows)||!rows.length)break;
-  rows.forEach(row=>{if(grouped[row.collection])grouped[row.collection].push(row)});
-  if(rows.length<pageSize)break;
-  offset+=rows.length;
-  if(offset>50000)throw new Error('A base na nuvem ultrapassou o limite seguro de leitura (50.000 registros).');
- }
- return grouped;
-}
 async function cloudPull(initial=false){
  if(studentExcelImportInProgress&&!initial)return;
  if(!cloudEnabled||cloudPullRunning||cloudPushRunning)return;
  if(cloudDirty){await cloudPushDiff();if(cloudDirty)return}
  cloudPullRunning=true;
  try{
-  /* A leitura antiga fazia UMA consulta global ao jc_records. O PostgREST pode
-     limitar essa resposta (por exemplo, 1.000 linhas), deixando coleções inteiras
-     fora da leitura. Agora cada coleção é lida separadamente e paginada. */
-  const grouped=await fetchAllCloudRecords();
-  const rows=Object.values(grouped).flat();
+  const r=await cloudRequest('/rest/v1/jc_records?select=collection,item_key,data,updated_at&order=collection.asc,item_key.asc');
+  const rows=await r.json();
   await fetchVisitDeletes();
   await fetchVisitResetCutoff();
   /* Se o usuário alterou algum dado enquanto esta leitura da nuvem estava
@@ -909,6 +874,8 @@ async function cloudPull(initial=false){
     scheduleCloudPush();
     return;
   }
+  const grouped={};CLOUD_COLLECTIONS.forEach(k=>grouped[k]=[]);
+  rows.forEach(row=>{if(grouped[row.collection])grouped[row.collection].push(row)});
   if(initial&&rows.length===0){
     CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]={});
     cloudReady=true;cloudDirty=true;await cloudPushDiff(true);return;
@@ -997,86 +964,49 @@ async function cloudPull(initial=false){
 async function cloudPushDiff(force=false){
  if(!cloudEnabled||cloudPushRunning||(!cloudDirty&&!force))return;
  cloudPushRunning=true;clearTimeout(cloudPushTimer);cloudPushTimer=null;
- let hadError=false;
  try{
   await fetchVisitDeletes();
   await fetchVisitResetCutoff();
-  const now=new Date().toISOString();
-  const postUpserts=async(list)=>{
-   if(!list.length)return;
-   /* Não mandamos toda a base em uma única requisição. Um aviso em destaque
-      pode conter uma imagem grande em base64; uma requisição grande demais
-      fazia TODO o lote falhar, inclusive alunos, avisos e vistos. */
-   const maxItems=20,maxBytes=450000;
-   let batch=[],bytes=2;
-   const flush=async()=>{
-    if(!batch.length)return;
-    await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(batch)});
-    batch=[];bytes=2;
-   };
-   for(const item of list){
-    const size=JSON.stringify(item).length;
-    if(batch.length&&(batch.length>=maxItems||bytes+size>maxBytes))await flush();
-    batch.push(item);bytes+=size;
-    if(size>maxBytes)await flush();
-   }
-   await flush();
-  };
+  const upserts=[];const deletes=[];const now=new Date().toISOString();
   for(const k of CLOUD_COLLECTIONS){
-   const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
-   const upserts=[];
-   current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
-   try{
-    await postUpserts(upserts);
+    const current=cloudEntries(k),curSer=serializeMap(current),shadow=cloudShadow[k]||{};
+    current.forEach((data,key)=>{if(force||shadow[key]!==curSer[key])upserts.push({collection:k,item_key:key,data,updated_at:now})});
     if(k==="students"){
-      /* Para alunos, somente exclusões explicitamente marcadas pelo professor
-         podem apagar um cadastro na nuvem. */
-      for(const key of studentDeleteKeys){
-       await cloudRequest('/rest/v1/jc_records?collection=eq.students&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
-      }
-    }else if(k!=="visits"&&!studentExcelImportInProgress){
-      /* Mantém o comportamento anterior para exclusões explícitas das demais
-         coleções, mas uma falha em uma coleção não bloqueia as outras. */
-      for(const key of Object.keys(shadow)){
-       if(!current.has(key)){
-        await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(k)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
-       }
-      }
+      /* Para alunos, só apagamos chaves marcadas por uma ação explícita de exclusão.
+         Nunca apagamos por diferença entre listas, pois uma lista local pode estar
+         incompleta durante sincronização/importação. */
+      studentDeleteKeys.forEach(key=>deletes.push([k,key]));
+      // Chaves antigas/duplicadas não são apagadas automaticamente. A interface as consolida pela identidade Turma + Nº; exclusão física só ocorre por ação explícita do professor.
+    }else if(k==="visits"){
+      if(visitPeriodResetRunning)continue;
+      /* Vistos são históricos aditivos. Nunca apagar da nuvem só porque um aparelho
+         ainda não possui uma leitura feita em outro dispositivo. */
+    }else{
+      Object.keys(shadow).forEach(key=>{if(!current.has(key))deletes.push([k,key])});
     }
-    cloudShadow[k]=serializeMap(cloudEntries(k));
-   }catch(err){
-    hadError=true;
-    cloudLastError=`${k}: ${err.message}`;
-    console.warn('Falha ao sincronizar a coleção '+k,err);
-   }
   }
-  /* Só consideramos a fila limpa quando TODAS as coleções alteradas foram
-     confirmadas. O que falhou permanece pendente para a próxima tentativa. */
-  if(!hadError){
-   localStorage.removeItem("jc_students_pending_sync");
-   localStorage.removeItem("jc_cloud_pending_sync");
+  if(upserts.length){
+    await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(upserts)});
   }
-  if(studentDeleteKeys.size&&!hadError){studentDeleteKeys.clear();saveStudentDeleteKeys()}
+  for(const [collection,key] of deletes){
+    await cloudRequest('/rest/v1/jc_records?collection=eq.'+encodeURIComponent(collection)+'&item_key=eq.'+encodeURIComponent(key),{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+  }
+  CLOUD_COLLECTIONS.forEach(k=>cloudShadow[k]=serializeMap(cloudEntries(k)));
+  localStorage.removeItem("jc_students_pending_sync");
+  if(studentDeleteKeys.size){studentDeleteKeys.clear();saveStudentDeleteKeys()}
   studentLegacyCloudKeys.clear();
-  cloudDirty=hadError;
-  if(!hadError){cloudReady=true;cloudLastError="";cloudLastPush=Date.now()}
- }catch(err){
-  hadError=true;cloudLastError=err.message;cloudDirty=true;console.warn('Falha ao enviar alterações ao Supabase:',err);
- }finally{
-  cloudPushRunning=false;updateCloudIndicators();
-  if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800);
- }
+  /* Não libera vistos pendentes apenas porque um envio em lote terminou.
+     pushVisitImmediately libera cada visto após confirmação; os demais ficam
+     protegidos e serão reenviados nas próximas sincronizações. */
+  cloudDirty=false;cloudReady=true;cloudLastError="";cloudLastPush=Date.now();
+ }catch(err){cloudLastError=err.message;console.warn('Falha ao enviar alterações ao Supabase:',err);cloudDirty=true}
+ finally{cloudPushRunning=false;updateCloudIndicators();if(cloudDirty)cloudPushTimer=setTimeout(()=>cloudPushDiff(),1800)}
 }
 function scheduleCloudPush(){cloudDirty=true;updateCloudIndicators();clearTimeout(cloudPushTimer);cloudPushTimer=setTimeout(async()=>{await cloudPushDiff();if(!cloudDirty)await cloudPull(false)},120)}
 function persist(){
  db.students=collapseStudentDuplicates(db.students||[]);
  const nextStudents=JSON.stringify(db.students||[]),prevStudents=localStorage.getItem("jc_students");
  if(prevStudents!==nextStudents)localStorage.setItem("jc_students_pending_sync","1");
- /* O sinal de pendência precisa sobreviver a fechar/reabrir o navegador.
-    Antes ele existia somente em memória (cloudDirty); se a rede falhasse e o
-    aparelho fosse fechado, na próxima abertura a nuvem antiga podia voltar por
-    cima da alteração local. */
- localStorage.setItem("jc_cloud_pending_sync","1");
  Object.keys(db).forEach(k=>localStorage.setItem("jc_"+k,JSON.stringify(db[k])));
  scheduleCloudPush();
 }
@@ -1087,11 +1017,7 @@ async function syncNow(showToast=false){
 function cloudStatusText(){if(cloudLastError)return '☁ Sem sincronização';if(cloudDirty||cloudPushRunning)return '☁ Enviando...';if(cloudReady)return '☁ Sincronizado';return '☁ Conectando...'}
 function updateCloudIndicators(){document.querySelectorAll('[data-cloud-status],.cloudStatusBtn').forEach(el=>{el.style.display='none';el.setAttribute('aria-hidden','true')})}
 async function initCloud(){
- /* Se este aparelho fechou enquanto uma alteração aguardava a nuvem, publique
-    primeiro a fila local. Só depois aceite dados remotos como atualização. */
- if(localStorage.getItem("jc_cloud_pending_sync")==="1")cloudDirty=true;
  await reconcileStudentsCloud();
- if(cloudDirty){await cloudPushDiff();}
  await cloudPull(true);
  await pullScheduleCloud(true);
  setInterval(()=>{syncNow(false);pullScheduleCloud(false)},1500);
@@ -1414,10 +1340,16 @@ async function fetchStudentVisitsFromCloud(st){
  await fetchVisitDeletes();
  await fetchVisitResetCutoff();
  const addRows=rows=>{(Array.isArray(rows)?rows:[]).forEach(row=>{const v=row?.data;if(v?.deleted===true){markVisitDeleted(v.id??row?.item_key);found.delete(String(v.id??row?.item_key));return}if(v&&v.id!==undefined&&!isVisitDeleted(v))found.set(String(v.id),v)})};
- /* Fazemos uma leitura paginada da coleção inteira. Isso cobre também vistos
-    antigos sem login e evita que o limite de 1.000 linhas esconda registros. */
- const all=await fetchCloudRecordsPaginated('visits');
- addRows(all.filter(row=>visitMatchesStudent(row?.data,st)));
+ const login=String(st.login||'').trim();
+ if(login){
+  const r=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&data->>login=eq.'+encodeURIComponent(login)+'&select=item_key,data,updated_at&order=updated_at.desc');
+  addRows(await r.json());
+ }
+ /* Alguns vistos antigos podem não ter login, mas possuem turma e chamada. Como a
+    quantidade de vistos é pequena, esta leitura complementar continua leve. */
+ const r2=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data,updated_at&order=updated_at.desc');
+ const all=await r2.json();
+ addRows((Array.isArray(all)?all:[]).filter(row=>visitMatchesStudent(row?.data,st)));
  return [...found.values()];
 }
 async function pullStudentVisitsOnly(){
@@ -3083,10 +3015,7 @@ function scheduleSubjectPalette(v){
 const SCHEDULE_SUBJECTS=["Artes","Ciências","Eletiva","E.O. Mat.","E.O. Port.","Ed. Física","Geografia","História","Inglês","Matemática","Português"];
 function scheduleSubjectStyle(v){const c=scheduleSubjectPalette(v);return `background:${c.bg};border-color:${c.bd};color:${c.fg}`}
 function paintScheduleSubject(input){if(!input)return;const c=scheduleSubjectPalette(input.value);input.style.backgroundColor=c.bg;input.style.borderColor=c.bd;input.style.color=c.fg}
-const SCHEDULE_PENDING_KEY="jc_schedule_pending_keys";
-let schedulePendingKeys=new Set();
-try{const raw=JSON.parse(localStorage.getItem(SCHEDULE_PENDING_KEY)||'[]');if(Array.isArray(raw))raw.forEach(k=>schedulePendingKeys.add(String(k)))}catch{}
-function saveSchedulePendingKeys(){localStorage.setItem(SCHEDULE_PENDING_KEY,JSON.stringify([...schedulePendingKeys]))}
+const schedulePendingKeys=new Set();
 let scheduleSaveRunning=false;
 const SCHEDULE_V2_COLLECTION="schedule_v2";
 const SCHEDULE_DEVICE_KEY="jc_schedule_device_id";
@@ -3124,7 +3053,7 @@ async function pullScheduleCloud(initial=false){
 }
 async function saveScheduleKeyCloud(key){
  if(!cloudEnabled||!key)return false;
- const sk=String(key);schedulePendingKeys.add(sk);saveSchedulePendingKeys();saveScheduleLocal();
+ const sk=String(key);schedulePendingKeys.add(sk);saveScheduleLocal();
  const stamp=Date.now();
  const versions=scheduleVersions();versions[sk]=stamp;saveScheduleVersions(versions);
  const itemKey=`${encodeURIComponent(sk)}|${stamp}|${scheduleDeviceId()}`;
@@ -3137,7 +3066,7 @@ async function saveScheduleKeyCloud(key){
   const check=await cloudRequest('/rest/v1/jc_records?collection=eq.'+SCHEDULE_V2_COLLECTION+'&data->>baseKey=eq.'+encodeURIComponent(sk)+'&select=item_key,data,updated_at&order=updated_at.desc&limit=1');
   const rows=await check.json();const row=Array.isArray(rows)?rows[0]:null;
   if(!row||String(row?.data?.baseKey)!==sk||JSON.stringify(row?.data?.value)!==JSON.stringify(db.schedule[sk]))throw new Error('A disciplina não foi confirmada na nuvem.');
-  schedulePendingKeys.delete(sk);saveSchedulePendingKeys();cloudLastError='';cloudLastPush=Date.now();return true;
+  schedulePendingKeys.delete(sk);cloudLastError='';cloudLastPush=Date.now();return true;
  }catch(err){
   // A versão local continua protegida. O próximo ciclo tenta novamente.
   schedulePendingKeys.add(sk);cloudLastError=String(err?.message||err);console.warn('Falha ao salvar disciplina na nuvem:',err);return false;
