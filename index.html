@@ -1623,30 +1623,34 @@ async function waitVisitSyncIdle(){
 async function closeVisitsInCloud(snapshot,archive,newPeriod){
  if(!cloudEnabled)throw new Error("Sem conexão com a nuvem.");
  const now=new Date().toISOString();
- // 1) arquiva uma cópia antes de remover os vistos ativos.
- await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:'visitArchives',item_key:String(archive.id),data:archive,updated_at:now}])});
- // 2) publica PRIMEIRO um marco de fechamento compartilhado. Este é o mecanismo
- // definitivo: mesmo que o Supabase não permita DELETE pela chave pública, nenhum
- // aparelho poderá ressuscitar registros anteriores a este fechamento.
- const cutoff=Date.now();
- await saveVisitResetCutoff(cutoff,newPeriod);
- // Registra exclusões permanentes dos IDs encerrados. Isso impede qualquer aparelho
- // antigo/offline de republicar um visto do período fechado.
- if(Array.isArray(snapshot)&&snapshot.length){
-  const dels=snapshot.filter(v=>v&&v.id!==undefined).map(v=>({collection:VISIT_DELETE_COLLECTION,item_key:String(v.id),data:{visitId:String(v.id),deletedAt:cutoff,reason:'period-close'},updated_at:new Date(cutoff).toISOString()}));
-  if(dels.length)await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify(dels)});
-  dels.forEach(d=>markVisitDeleted(d.item_key));
+ /*
+  * Fechamento de teste: usa SOMENTE a coleção já existente `visits` para a
+  * exclusão remota. As coleções auxiliares visitControl/visitDeletes/visitLedger
+  * não participam desta operação, porque podem não existir nas políticas/RLS do
+  * projeto e estavam fazendo o botão falhar antes de chegar à exclusão.
+  * Nenhuma outra coleção é tocada.
+  */
+ const before=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key,data&order=updated_at.desc');
+ const beforeRows=await before.json();
+ const beforeIds=new Set((Array.isArray(beforeRows)?beforeRows:[]).map(r=>String(r?.item_key||'')).filter(Boolean));
+
+ /* Apaga EXCLUSIVAMENTE os registros da coleção `visits`. */
+ await cloudRequest('/rest/v1/jc_records?collection=eq.visits',{method:'DELETE',headers:{'Prefer':'return=minimal'}});
+
+ /* Confirma na própria nuvem que os vistos realmente desapareceram. */
+ const verify=await cloudRequest('/rest/v1/jc_records?collection=eq.visits&select=item_key&limit=1');
+ const remaining=await verify.json();
+ if(Array.isArray(remaining)&&remaining.length){
+   throw new Error(`A nuvem não confirmou a exclusão dos vistos (${remaining.length} registro(s) ainda visíveis).`);
  }
- // 3) tenta a limpeza física. Se a política RLS não permitir DELETE, os registros
- // antigos podem continuar armazenados, mas ficam inativos pelo marco acima.
- try{await cloudRequest('/rest/v1/jc_records?collection=eq.visits',{method:'DELETE',headers:{'Prefer':'return=minimal'}})}catch(err){console.warn('DELETE físico dos vistos não permitido; usando fechamento lógico seguro.',err)}
- // 4) zera também o livro redundante, para ele nunca ressuscitar registros encerrados.
- await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([{collection:VISIT_LEDGER_COLLECTION,item_key:VISIT_LEDGER_KEY,data:{visits:[],updatedAt:Date.now()},updated_at:now}])});
- // 4) publica o novo período imediatamente.
+
+ /* Atualiza somente o período dos vistos. */
  await cloudRequest('/rest/v1/jc_records?on_conflict=collection,item_key',{method:'POST',headers:{'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},body:JSON.stringify([
   {collection:'visitPeriod',item_key:'year',data:newPeriod.year,updated_at:now},
   {collection:'visitPeriod',item_key:'bimester',data:newPeriod.bimester,updated_at:now}
  ])});
+
+ return {deleted:beforeIds.size};
 }
 async function endVisitBimester(){
  const p=currentVisitPeriod(),count=(db.visits||[]).length;
@@ -1663,7 +1667,10 @@ async function endVisitBimester(){
   const snapshot=mergeVisitLists(db.visits||[],remote);
   const archive={id:Date.now()+Math.floor(Math.random()*1000),kind:'bimester',label:`${p.bimester}º Bimestre de ${p.year}`,year:p.year,bimester:p.bimester,total:snapshot.length,endedAt:Date.now(),visits:snapshot.map(v=>({...v}))};
   const next={year:p.year,bimester:p.bimester<4?p.bimester+1:4};
-  await closeVisitsInCloud(snapshot,archive,next);
+  const closeResult=await closeVisitsInCloud(snapshot,archive,next);
+  /* Fechamento físico confirmado na nuvem: limpa apenas o estado local dos vistos. */
+  visitDeletedKeys.clear();saveVisitDeletedKeys();
+  visitResetCutoff=0;localStorage.removeItem('jc_visit_reset_cutoff');
   if(!Array.isArray(db.visitArchives))db.visitArchives=[];
   db.visitArchives.push(archive);db.visits=[];db.visitPeriod=next;
   visitPendingKeys.clear();saveVisitPendingKeys();
@@ -1672,7 +1679,7 @@ async function endVisitBimester(){
   localStorage.setItem('jc_visit_bimester_selected',String(next.bimester));
   cloudShadow.visits={};cloudShadow.visitArchives=serializeMap(cloudEntries('visitArchives'));cloudShadow.visitPeriod=serializeMap(cloudEntries('visitPeriod'));
   cloudDirty=false;cloudLastError='';
-  toast(`Bimestre encerrado e sincronizado. A nova contagem começou em 0.`);
+  toast(`Bimestre encerrado na nuvem. ${Number(closeResult?.deleted||0)} visto(s) apagado(s). A nova contagem começou em 0.`);
  }catch(err){
   cloudLastError=String(err?.message||err);toast('Não foi possível encerrar o bimestre na nuvem. Nenhum visto foi apagado neste aparelho.');
  }finally{visitPeriodResetRunning=false;visitsTeacher();setTimeout(()=>syncVisitsDirect(),300)}
