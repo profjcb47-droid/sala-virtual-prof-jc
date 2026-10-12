@@ -958,7 +958,7 @@ async function cloudPull(initial=false){
     setTimeout(maybeNotifyCoordinator,0);
     setTimeout(maybeNotifyTeacher,0);
   }
- }catch(err){cloudLastError=err.message;console.warn('Sincronização Supabase indisponível:',err)}
+ }catch(err){cloudLastError=err.message;console.warn('Sincronização Supabase indisponível:',err);if(initial)toast('Não foi possível conectar ao Supabase. Verifique a internet e a configuração.')}
  finally{cloudPullRunning=false;updateCloudIndicators()}
 }
 async function cloudPushDiff(force=false){
